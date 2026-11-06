@@ -1,4 +1,4 @@
-"""MediaPipe-backed hand detection utilities."""
+"""Rastreamento de até duas mãos com o MediaPipe e desenho do esqueleto."""
 
 from __future__ import annotations
 
@@ -51,6 +51,33 @@ class HandTracker:
                 }
             )
         return detected
+
+    @staticmethod
+    def draw_landmarks(frame: np.ndarray, hands: list[dict]) -> None:
+        """Desenha os 21 pontos e as conexões de cada mão no quadro de exibição."""
+        for hand in hands:
+            landmarks = hand["landmarks"]
+            color = (0, 255, 255) if hand.get("label") == "LEFT" else (255, 0, 255)
+            for start, end in mp.solutions.hands.HAND_CONNECTIONS:
+                pt_start = tuple(landmarks[start].astype(int))
+                pt_end = tuple(landmarks[end].astype(int))
+                cv2.line(frame, pt_start, pt_end, color, 2)
+
+            for point in landmarks:
+                center = tuple(point.astype(int))
+                cv2.circle(frame, center, 4, color, -1)
+
+            wrist = tuple(landmarks[0].astype(int))
+            cv2.putText(
+                frame,
+                hand.get("label", "LEFT"),
+                (wrist[0], wrist[1] - 8),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                color,
+                2,
+                cv2.LINE_AA,
+            )
 
     def close(self):
         self.hands.close()

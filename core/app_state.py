@@ -1,6 +1,8 @@
-"""Application state container used to coordinate gestures and effects."""
+"""Estado compartilhado entre o loop principal, os efeitos e o painel de informações."""
 
 from dataclasses import dataclass, field
+
+from config import PARTICLE_COUNT
 
 
 @dataclass
@@ -17,7 +19,7 @@ class AppState:
     tracker_active: bool = True
     last_status: str = "READY"
     fps: float = 0.0
-    particle_count: int = 1500
+    particle_count: int = PARTICLE_COUNT
     camera_resolution: str = "640x480"
     display_resolution: str = "1280x720"
     labels: dict = field(default_factory=dict)

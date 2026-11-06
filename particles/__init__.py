@@ -1,1 +1,1 @@
-"""Particle simulation primitives and geometry helpers."""
+"""Geometria e simulação das partículas do coração."""

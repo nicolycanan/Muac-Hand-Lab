@@ -1,11 +1,10 @@
-"""MUAC Magic Hand Lab webcam application."""
+"""Loop principal do MUAC, da captura de vídeo à exibição do coração."""
 
 from __future__ import annotations
 
 import time
 
 import cv2
-import mediapipe as mp
 import numpy as np
 
 from config import (
@@ -20,6 +19,7 @@ from config import (
     GESTURE_HOLD_TIME,
     PARTICLE_COUNT,
     PINCH_THRESHOLD,
+    SHOW_LANDMARKS,
     START_WITH_HEART,
     WINDOW_RESIZABLE,
 )
@@ -36,11 +36,14 @@ class MagicHandApp:
         self.state = AppState()
         self.state.particle_count = PARTICLE_COUNT
         self.state.heart_enabled = START_WITH_HEART
+        self.state.show_landmarks = SHOW_LANDMARKS
         self.state.active_effect = "PARTICLE_HEART" if START_WITH_HEART else "IDLE"
         self.state.display_resolution = f"{DISPLAY_WIDTH}x{DISPLAY_HEIGHT}"
         self.state.camera_resolution = f"{CAMERA_WIDTH}x{CAMERA_HEIGHT}"
         self.display_width = DISPLAY_WIDTH
         self.display_height = DISPLAY_HEIGHT
+        self._last_status_log = 0.0
+        self._startup_logged = False
 
         self.camera = CameraController(
             camera_index=CAMERA_INDEX,
@@ -69,6 +72,15 @@ class MagicHandApp:
         canvas[y_offset:y_offset + new_h, x_offset:x_offset + new_w] = resized
         return canvas
 
+    def _emit_runtime_log(self, reason: str) -> None:
+        if not self._startup_logged:
+            print(f"[MagicHandApp] file={__file__}")
+            print(f"[MagicHandApp] tracker={__import__('core.hand_tracker', fromlist=['__file__']).__file__}")
+            print(f"[MagicHandApp] shapes={__import__('particles.shapes', fromlist=['__file__']).__file__}")
+            print(f"[MagicHandApp] camera index={CAMERA_INDEX} backend={CAMERA_BACKEND} resolution={CAMERA_WIDTH}x{CAMERA_HEIGHT}")
+            self._startup_logged = True
+        print(f"[MagicHandApp] {reason}")
+
     def _handle_keys(self, key: int) -> None:
         if key == ord('q') or key == 27:
             self.running = False
@@ -87,30 +99,12 @@ class MagicHandApp:
         elif key in (ord('m'), ord('M')):
             self.state.show_landmarks = not self.state.show_landmarks
 
-    def _draw_landmarks(self, frame, hands):
-        if not self.state.show_landmarks and not self.state.show_debug:
-            return
-
-        for idx, hand in enumerate(hands):
-            landmarks = hand["landmarks"]
-            label = hand.get("label", "LEFT" if idx == 0 else "RIGHT")
-            color = (0, 255, 255) if label == "LEFT" else (255, 0, 255)
-            for connection in mp.solutions.hands.HAND_CONNECTIONS:
-                a_index, b_index = connection
-                pt_a = tuple(np.round(landmarks[a_index]).astype(int))
-                pt_b = tuple(np.round(landmarks[b_index]).astype(int))
-                cv2.line(frame, pt_a, pt_b, (255, 255, 255), 1, cv2.LINE_AA)
-            for point in landmarks:
-                center = tuple(np.round(point).astype(int))
-                cv2.circle(frame, center, 2, (0, 0, 255), -1)
-            cv2.putText(frame, label, tuple(np.round(landmarks[0]).astype(int)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
-
     def run(self):
         if not self.camera.open():
             print(f"Unable to open camera {self.camera.info}; please check CAMERA_INDEX and backend settings.")
             return
 
-        print(f"Camera ready: {self.camera.info}")
+        self._emit_runtime_log(f"Camera ready: {self.camera.info}")
         cv2.namedWindow("MUAC / MAGIC HAND LAB", cv2.WINDOW_NORMAL)
         cv2.resizeWindow("MUAC / MAGIC HAND LAB", self.display_width, self.display_height)
 
@@ -120,40 +114,49 @@ class MagicHandApp:
                 print("Camera read failed; stopping application.")
                 break
 
-            frame = cv2.flip(frame, 1)
-            frame = cv2.addWeighted(frame, 1.0 - CAMERA_DARKNESS, np.zeros_like(frame), CAMERA_DARKNESS, 0.0)
-            self.state.camera_resolution = f"{frame.shape[1]}x{frame.shape[0]}"
+            camera_frame = cv2.flip(frame, 1)
+            hands = self.tracker.detect(camera_frame)
+
+            render_frame = camera_frame.copy()
+            if CAMERA_DARKNESS:
+                render_frame = cv2.convertScaleAbs(
+                    render_frame, alpha=1.0 - CAMERA_DARKNESS, beta=0
+                )
+            self.state.camera_resolution = f"{camera_frame.shape[1]}x{camera_frame.shape[0]}"
             self.state.display_resolution = f"{self.display_width}x{self.display_height}"
             self.state.tracker_active = self.tracker.is_active
 
             current_time = time.perf_counter()
-            dt = max(0.016, min(0.05, current_time - self.previous_time))
+            dt = current_time - self.previous_time
             self.previous_time = current_time
 
-            hands = self.tracker.detect(frame)
             self.state.hands_detected = len(hands)
-            gesture = "IDLE"
-            if self.state.gesture_enabled:
-                gesture = self.gesture_controller.update(hands, dt)
-            else:
-                self.gesture_controller.candidate = "IDLE"
-                self.gesture_controller.confirmed = "IDLE"
-                self.gesture_controller.active = "IDLE"
-                self.gesture_controller.timer = 0.0
-                self.gesture_controller.triggered = False
-                gesture = "IDLE"
+            if current_time - self._last_status_log >= 1.0:
+                landmark_counts = [len(hand["landmarks"]) for hand in hands]
+                self._emit_runtime_log(
+                    f"hands={self.state.hands_detected} landmarks_per_hand={landmark_counts} "
+                    f"skeleton={self.state.show_landmarks} "
+                    f"resolution={self.state.camera_resolution}"
+                )
+                self._last_status_log = current_time
+            gesture = self.gesture_controller.update(hands if self.state.gesture_enabled else [], dt)
             self.state.gesture = gesture
             self.state.confirmed_gesture = gesture if gesture != "IDLE" else "IDLE"
 
-            self.state.active_effect = self.effect_manager.update(frame, hands, gesture, dt)
-            if self.effect_manager.heart_enabled and self.state.active_effect == "IDLE":
-                self.effect_manager.heart.draw(frame)
-            self._draw_landmarks(frame, hands)
+            self.state.active_effect = self.effect_manager.update(render_frame, self.gesture_controller, dt)
+            if self.state.show_landmarks:
+                self.tracker.draw_landmarks(render_frame, hands)
 
-            fps = 1.0 / dt if dt > 0 else 0.0
-            self.state.fps = fps
-            display_frame = self._letterbox(frame, self.display_width, self.display_height)
-            draw_hud(display_frame, self.state, fps, self.state.hands_detected, gesture)
+            self.state.heart_enabled = self.effect_manager.heart_enabled
+            self.state.transform_active = self.effect_manager.transform_active
+            if dt > 0.0:
+                fps = 1.0 / dt
+                self.state.fps += 0.15 * (fps - self.state.fps)
+            display_frame = self._letterbox(render_frame, self.display_width, self.display_height)
+            draw_hud(
+                display_frame, self.state, self.gesture_controller,
+                self.effect_manager.interaction_mode, self.effect_manager.current_shape,
+            )
 
             cv2.imshow("MUAC / MAGIC HAND LAB", display_frame)
             key = cv2.waitKey(1) & 0xFF

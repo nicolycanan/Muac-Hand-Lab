@@ -1,5 +1,7 @@
 import numpy as np
 
+from config import PARTICLE_COUNT
+
 from effects.effect_manager import EffectManager
 from particles.particle_system import ParticleSystem
 from particles.shapes import generate_heart_targets
@@ -29,7 +31,7 @@ def test_particle_system_update_approaches_target():
 def test_effect_manager_starts_with_heart_enabled():
     manager = EffectManager()
     assert manager.heart_enabled is True
-    assert manager.heart.system.positions.shape == (1500, 2)
+    assert manager.heart.system.positions.shape == (PARTICLE_COUNT, 2)
 
 
 def test_particle_system_draw_changes_frame():
@@ -38,3 +40,42 @@ def test_particle_system_draw_changes_frame():
     system.positions = np.array([[50, 50], [80, 80], [110, 110], [140, 140], [170, 170], [200, 200], [230, 230], [260, 260]], dtype=np.float32)
     system.draw(frame)
     assert frame.any() > 0
+
+
+def test_set_targets_preserves_particle_state_and_read_only_base_geometry():
+    manager = EffectManager()
+    system = manager.heart.system
+    base = system.base_targets.copy()
+    old_targets = system.targets.copy()
+    system.velocities[:] = (2.0, -1.0)
+    positions = system.positions.copy()
+    velocities = system.velocities.copy()
+
+    manager.set_transform((300, 220), 2.0, np.pi / 2)
+    np.testing.assert_array_equal(system.positions, positions)
+    np.testing.assert_array_equal(system.velocities, velocities)
+    np.testing.assert_array_equal(system.base_targets, base)
+    assert not system.base_targets.flags.writeable
+    assert not np.array_equal(old_targets, system.targets)
+    np.testing.assert_allclose(
+        np.linalg.norm(system.targets - manager.transform_center, axis=1),
+        np.linalg.norm(base, axis=1) * 240,
+        atol=5e-5,
+    )
+
+
+def test_mixed_particle_effects_stay_finite_and_return_to_latest_targets():
+    system = ParticleSystem(2000, generate_heart_targets(2000) * 100 + (320, 240))
+    system.scatter()
+    system.set_targets(system.targets + (10, -20))
+    targets = system.targets.copy()
+    system.break_apart(np.array([320, 240]))
+    for _ in range(12):
+        system.apply_local_repulsion((320, 240), dt=0.033)
+        system.update(0.033)
+    for _ in range(240):
+        system.update(0.033)
+    assert not system.exploding
+    assert all(np.isfinite(a).all() for a in (system.positions, system.velocities, system.targets, system.colors))
+    np.testing.assert_array_equal(system.targets, targets)
+    assert np.linalg.norm(system.positions - targets, axis=1).mean() < 0.1

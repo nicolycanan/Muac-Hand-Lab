@@ -1,4 +1,4 @@
-"""Synthetic landmark probe for GestureController without webcam use."""
+"""Diagnóstico manual do controlador de gestos com pontos sintéticos, sem webcam."""
 
 import os
 import sys

@@ -1,4 +1,4 @@
-"""Camera opening and validation utilities."""
+"""Captura de vídeo e verificação dos dispositivos disponíveis no OpenCV."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from config import CAMERA_BACKEND_MAP, CAMERA_FPS, CAMERA_HEIGHT, CAMERA_INDEX, 
 
 
 def list_camera_indices(start: int = 0, stop: int = 10, backend_name: str = "AUTO") -> list[tuple[int, bool, tuple[int, int] | None]]:
-    """Probe a camera index range and report whether each device is usable."""
+    """Testa um intervalo de índices e informa quais câmeras abrem e entregam quadros."""
     backend = CAMERA_BACKEND_MAP.get(backend_name.upper(), cv2.CAP_ANY)
     results: list[tuple[int, bool, tuple[int, int] | None]] = []
     for idx in range(start, stop + 1):

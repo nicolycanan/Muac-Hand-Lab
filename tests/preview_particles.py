@@ -1,4 +1,4 @@
-"""Preview-only particle heart without MediaPipe."""
+"""Prévia do coração com controles pelo teclado, sem rastreamento de mãos."""
 
 import sys
 from pathlib import Path

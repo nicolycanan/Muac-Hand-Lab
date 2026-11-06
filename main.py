@@ -1,4 +1,4 @@
-"""Entry point for the MUAC Magic Hand Lab application."""
+"""Ponto de entrada que inicia o MUAC Magic Hand Lab."""
 
 from Magic_hand import MagicHandApp
 

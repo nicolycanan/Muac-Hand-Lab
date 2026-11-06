@@ -1,12 +1,8 @@
-# Experiments and extension notes
+# Notas para experimentos
 
-To add a new effect without modifying the main webcam loop, create a new class under `effects/` and register it in `EffectManager`.
+O `EffectManager` recebe o controlador de gestos após a confirmação e usa o resultado para escolher a interação. Um novo efeito pode usar essa mesma entrada e manter no próprio módulo o estado específico do visual.
 
-The recommended pattern is:
-
-1. Add a visual effect module.
-2. Define an `update(frame, hands, dt)` API and optional `draw(frame)` routine.
-3. Register the effect in `EffectManager` or a future preset registry.
-4. Expose a keyboard toggle in `MagicHandApp._handle_keys`.
-
-This keeps the main loop stable while allowing more particle presets, custom gestures, JSON settings, or sound-reactive behavior in later versions.
+1. Implemente o efeito em `effects/` com uma rotina para atualizar o estado e outra para desenhá-lo.
+2. Integre a seleção ao `EffectManager` para usar o gesto confirmado e as coordenadas da mão.
+3. Para um acionamento manual, use os atalhos de `MagicHandApp._handle_keys`.
+4. Valide o comportamento com quadros sintéticos antes de calibrá-lo com a câmera.

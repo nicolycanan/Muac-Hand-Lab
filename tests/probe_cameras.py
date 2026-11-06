@@ -1,4 +1,4 @@
-"""List and probe OpenCV camera devices, including Iriun Webcam."""
+"""Testa os índices de câmera do OpenCV para localizar um dispositivo como a Iriun."""
 
 from __future__ import annotations
 

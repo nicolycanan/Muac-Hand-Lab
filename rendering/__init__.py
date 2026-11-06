@@ -1,1 +1,1 @@
-"""Rendering utilities for overlays and HUD components."""
+"""Módulos que desenham informações sobre a imagem da câmera."""

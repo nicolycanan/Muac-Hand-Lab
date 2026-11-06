@@ -1,33 +1,36 @@
-"""Particle Heart effect wrapper around a particle system."""
+"""Converte a geometria do coração em destinos para o sistema de partículas."""
 
 from __future__ import annotations
 
 import numpy as np
 
-from config import HEART_BASE_SCALE, PARTICLE_COUNT
+from config import HEART_BASE_SCALE, MAX_SCALE, MIN_SCALE, PARTICLE_COUNT
 from particles.particle_system import ParticleSystem
 from particles.shapes import generate_heart_targets
-from particles.transforms import rotate_points, scale_points, translate_points
+from particles.transforms import rotate_points
 
 
 class ParticleHeartEffect:
     def __init__(self, count: int = PARTICLE_COUNT):
         self.count = count
-        self.base_targets = generate_heart_targets(count, radius=0.9)
-        self.system = ParticleSystem(count=count, initial_targets=self.base_targets.copy())
+        self.system = ParticleSystem(count=count, initial_targets=generate_heart_targets(count, radius=0.9))
         self.center = np.array([0.0, 0.0], dtype=np.float32)
         self.scale = 1.0
         self.rotation = 0.0
         self.visible = True
 
+    @property
+    def base_targets(self) -> np.ndarray:
+        return self.system.base_targets
+
     def set_transform(self, center: tuple[float, float], scale: float, rotation: float) -> None:
         self.center = np.asarray(center, dtype=np.float32)
-        self.scale = float(scale)
+        self.scale = float(np.clip(scale, MIN_SCALE, MAX_SCALE))
         self.rotation = float(rotation)
-        base_scale = HEART_BASE_SCALE * max(0.45, min(1.15, self.scale))
-        transformed = self.base_targets.copy() * base_scale
-        transformed = rotate_points(transformed, self.rotation, center=(0.0, 0.0))
-        transformed = translate_points(transformed, self.center[0], self.center[1])
+        base_scale = HEART_BASE_SCALE * self.scale
+        transformed = rotate_points(self.base_targets, self.rotation)
+        transformed *= base_scale
+        transformed += self.center
         self.system.set_targets(transformed)
 
     def update(self, dt: float) -> None:

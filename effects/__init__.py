@@ -1,1 +1,1 @@
-"""Visual effects used by the lab application."""
+"""Efeitos visuais e gerenciamento dos modos de interação do MUAC."""

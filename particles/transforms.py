@@ -1,4 +1,4 @@
-"""Affine transforms used to move, rotate, and scale heart targets."""
+"""Transformações afins para deslocar, girar e redimensionar os destinos do coração."""
 
 from __future__ import annotations
 

@@ -1,12 +1,15 @@
-"""Generation utilities for particle-based heart shapes."""
+"""Gera destinos para as partículas a partir da curva matemática do coração."""
 
 from __future__ import annotations
 
 import cv2
 import numpy as np
 
+from config import PARTICLE_COUNT
+
 
 def heart_parametric(t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Retorna a curva em coordenadas cartesianas, com Y positivo para cima."""
     x = 16.0 * np.sin(t) ** 3
     y = (
         13.0 * np.cos(t)
@@ -14,34 +17,42 @@ def heart_parametric(t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         - 2.0 * np.cos(3.0 * t)
         - np.cos(4.0 * t)
     )
-    return x, -y
+    return x, y
 
 
-def generate_heart_targets(count: int = 1500, radius: float = 1.0) -> np.ndarray:
+def generate_heart_targets(count: int = PARTICLE_COUNT, radius: float = 1.0) -> np.ndarray:
     if count <= 0:
         raise ValueError("count must be positive")
 
-    t = np.linspace(0.0, 2.0 * np.pi, max(count * 8, 4000), endpoint=False)
+    t = np.linspace(0.0, 2.0 * np.pi, 4096, endpoint=False)
     x, y = heart_parametric(t)
-    x_norm = x / np.max(np.abs(x)) if np.max(np.abs(x)) > 0 else x
-    y_norm = y / np.max(np.abs(y)) if np.max(np.abs(y)) > 0 else y
+    extent = max(np.abs(x).max(), np.abs(y).max())
+    center, raster_scale = 256, 160.0
 
     canvas = np.zeros((512, 512), dtype=np.uint8)
     pts = np.column_stack(
         [
-            (x_norm * 160.0 + 256.0).astype(np.int32),
-            (y_norm * 160.0 + 256.0).astype(np.int32),
+            np.rint(center + x * raster_scale / extent),
+            np.rint(center - y * raster_scale / extent),
         ]
-    )
+    ).astype(np.int32)
     cv2.fillPoly(canvas, [pts], 255)
-    ys, xs = np.nonzero(canvas)
-    if len(xs) < count:
+    # Na máscara, Y cresce para baixo. Amostra faixas de área equivalente
+    # em metade da forma e espelha os pontos para manter a simetria.
+    ys, xs = np.nonzero(canvas[:, :center])
+    pairs = count // 2
+    if pairs > len(xs):
         raise ValueError("heart target generation failed to cover enough points")
-
     rng = np.random.default_rng(0)
-    sample = rng.choice(len(xs), size=count, replace=False)
-    coords = np.column_stack((xs[sample], ys[sample])).astype(np.float32)
-    coords[:, 0] = (coords[:, 0] - 256.0) / 160.0
-    coords[:, 1] = -(coords[:, 1] - 256.0) / 160.0
-    coords *= radius
-    return coords.astype(np.float32)
+    if pairs:
+        boundaries = np.arange(pairs + 1) * len(xs) // pairs
+        sample = rng.integers(boundaries[:-1], boundaries[1:])
+    else:
+        sample = np.empty(0, dtype=int)
+    half = np.column_stack((xs[sample] - center, ys[sample] - center))
+    mirrored = half * (-1, 1)
+    points = np.concatenate((half, mirrored))
+    if count % 2:
+        axis = np.flatnonzero(canvas[:, center])
+        points = np.vstack((points, (0, axis[len(axis) // 2] - center)))
+    return points.astype(np.float32) * (radius / raster_scale)

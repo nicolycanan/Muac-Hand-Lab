@@ -1,1 +1,1 @@
-"""Core runtime modules for hand tracking and app state."""
+"""Módulos de câmera, rastreamento, reconhecimento de gestos e estado do aplicativo."""
