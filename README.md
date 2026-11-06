@@ -1,6 +1,6 @@
 # MUAC Magic Hand Lab
 
-Laboratório de interação visual que usa a webcam para controlar um coração de partículas com as mãos. O MediaPipe rastreia até duas mãos, o OpenCV exibe a imagem espelhada e o NumPy simula 2.000 partículas vermelhas.
+Laboratório de interação visual que usa a webcam para formar um coração e letras com partículas controladas pelas mãos. O MediaPipe rastreia até duas mãos, o OpenCV exibe a imagem espelhada e o NumPy simula 2.000 partículas vermelhas.
 
 ## Instalação
 
@@ -35,15 +35,17 @@ Para conferir o rastreamento e o esqueleto no preview independente, ajuste `CAME
 
 ## Gestos
 
-O MUAC inicia com partículas livres. Levante o indicador e acompanhe a confirmação no painel. Ao confirmar o gesto, as partículas se reúnem no coração.
+O MUAC inicia com partículas livres. Levante o indicador para formar o coração ou mostre dois dedos para formar uma letra maiúscula de A a Z. O painel mostra o progresso enquanto você mantém o gesto.
 
 | Gesto | O que acontece |
 | --- | --- |
 | Indicador levantado por 0,7 s | Seleciona HEART. A forma permanece quando a mão sai da câmera. |
+| Dois dedos levantados por 0,7 s | Forma uma letra aleatória. Faça um V com indicador e médio e deixe o polegar recolhido. |
+| Três dedos levantados por 2 s | Troca a letra ativa por outra. Levante indicador, médio e anelar com o polegar recolhido. Abaixe os dedos antes de pedir outra troca. |
 | Cinco dedos abertos | A palma afasta apenas as partículas próximas. Ao afastar a mão, elas voltam à forma. |
-| Pinça com polegar e indicador | Captura e arrasta uma nuvem de partículas. Ao soltar, elas voltam ao coração. |
-| Estalo com polegar e dedo médio | Dispersa as partículas uma vez e deixa o coração se recompor. |
-| Duas pinças simultâneas | O ponto médio desloca o coração, a distância ajusta a escala e a inclinação gira a forma. Uma linha marca os pontos de pinça e exibe a escala e o ângulo. Soltar mantém a transformação aplicada. |
+| Pinça com polegar e indicador | Captura e arrasta uma nuvem de partículas. Ao soltar, elas voltam à forma ativa. |
+| Estalo com polegar e dedo médio | Dispersa as partículas uma vez e deixa a forma ativa se recompor. |
+| Duas pinças simultâneas | O ponto médio desloca a forma, a distância ajusta a escala e a inclinação gira a forma. Uma linha marca os pontos de pinça e exibe a escala e o ângulo. Soltar mantém a transformação aplicada. |
 
 ## Teclado
 
@@ -66,6 +68,6 @@ O MUAC inicia com partículas livres. Levante o indicador e acompanhe a confirma
 
 A suíte usa quadros e pontos sintéticos para verificar a orientação do coração, os gestos, as transições e a física. A precisão do estalo e o desempenho com vídeo ao vivo devem ser verificados com a webcam. [Roteiro de validação com Iriun](docs/reference-gap-analysis.md#validação-com-iriun) · [Imagem de orientação](docs/heart-orientation.png)
 
-A demonstração de referência orienta a sequência do modo livre à formação do coração e à transformação com duas pinças. No MUAC, HEART é a única forma disponível e se recompõe automaticamente após o estalo. [GIF de referência](https://github.com/HaiDuong1810/Gesture-Controlled-Particle-System/blob/main/assets/demo/demo_small.gif)
+A demonstração de referência orienta a sequência do modo livre à formação do coração e à transformação com duas pinças. No MUAC, HEART e as letras se recompõem automaticamente após o estalo. [GIF de referência](https://github.com/HaiDuong1810/Gesture-Controlled-Particle-System/blob/main/assets/demo/demo_small.gif)
 
 Veja também [a arquitetura do projeto](docs/architecture.md) e [a matriz de diferenças com a referência](docs/reference-gap-analysis.md).

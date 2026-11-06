@@ -9,7 +9,7 @@ import numpy as np
 
 from config import GRAB_RADIUS, REPEL_RADIUS
 from core.app_state import AppState
-from core.gesture_controller import GestureController, InteractionMode, RawGesture
+from core.gesture_controller import GestureController, GestureEvent, InteractionMode, RawGesture
 
 if TYPE_CHECKING:
     from effects.effect_manager import EffectManager
@@ -43,10 +43,20 @@ def draw_hud(
         f"FPS: {state.fps:.1f}",
     ]
     if shape is None:
-        summary.append("Levante o indicador para formar")
-    if gestures.candidate == RawGesture.INDEX_RAISED and not gestures.triggered and gestures.confirmed == RawGesture.IDLE:
-        progress = int(100 * gestures.pending.elapsed / gestures.hold_time)
-        summary.append(f"Confirmando HEART: {progress}%")
+        summary.append("1 dedo: HEART   2 dedos: letra")
+    labels = {
+        RawGesture.INDEX_RAISED: "Confirmando HEART",
+        RawGesture.TWO_FINGERS: "Escolhendo letra",
+        RawGesture.THREE_FINGERS: "Trocando letra",
+    }
+    change_available = shape is not None and shape != "HEART"
+    candidate = gestures.candidate
+    if candidate == RawGesture.THREE_FINGERS and not change_available:
+        summary.append("Mostre 2 dedos para criar letra")
+    elif candidate in labels and gestures.confirmed == RawGesture.IDLE:
+        delay = gestures.confirmation_delay(candidate)
+        progress = int(100 * gestures.pending.elapsed / delay)
+        summary.append(f"{labels[candidate]}: {progress}%")
     _draw_panel(frame, 12, 270, summary)
 
     if state.show_debug:
@@ -59,12 +69,15 @@ def draw_hud(
             fingers = sum(hand.fingers.values())
             lines.append(f"{label}: {hand.raw} | {fingers} fingers")
             lines.append(f"  PINCH GAP / PALM: {hand.pinch_ratio:.2f}")
+        action = gestures.action
+        if action == GestureEvent.CHANGE_LETTER and not change_available:
+            action = "NONE"
         lines.extend([
             f"RAW: {gestures.raw}",
             f"CANDIDATE: {gestures.candidate}",
             f"CONFIRMED: {gestures.confirmed}",
             f"INTERACTION: {mode}",
-            f"ACTION: {gestures.action}",
+            f"ACTION: {action}",
             f"CAMERA: {state.camera_resolution}",
             f"DISPLAY: {state.display_resolution}",
             f"TRACKER: {'ON' if state.tracker_active else 'OFF'}",

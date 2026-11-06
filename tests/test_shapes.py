@@ -56,3 +56,18 @@ def test_heart_shape_orientation_reference_export(tmp_path):
     main_relative = main_targets - main_center
     assert np.any((np.abs(main_relative[:, 0]) > 40.0) & (main_relative[:, 1] < -10.0))
     assert np.any((np.abs(main_relative[:, 0]) < 10.0) & (main_relative[:, 1] > 70.0))
+
+
+def test_letter_geometry_is_centered_and_immutable():
+    from string import ascii_uppercase
+
+    from particles.shapes import generate_letter_targets
+
+    for letter in ascii_uppercase:
+        targets = generate_letter_targets(letter)
+        assert targets.shape == (PARTICLE_COUNT, 2)
+        assert np.isfinite(targets).all()
+        assert not targets.flags.writeable
+        assert np.isclose(np.abs(targets).max(), 0.9, atol=0.02)
+        np.testing.assert_allclose(targets.max(axis=0) + targets.min(axis=0), (0, 0), atol=0.03)
+    assert not np.array_equal(generate_letter_targets("A"), generate_letter_targets("B"))

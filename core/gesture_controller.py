@@ -11,6 +11,7 @@ import numpy as np
 from config import (
     CONTINUOUS_HOLD_TIME,
     GESTURE_HOLD_TIME,
+    LETTER_CHANGE_HOLD_TIME,
     PINCH_THRESHOLD,
     SNAP_CLOSE_RATIO,
     SNAP_COOLDOWN,
@@ -23,6 +24,8 @@ from config import (
 class RawGesture(StrEnum):
     IDLE = "IDLE"
     INDEX_RAISED = "INDEX_RAISED"
+    TWO_FINGERS = "TWO_FINGERS"
+    THREE_FINGERS = "THREE_FINGERS"
     OPEN_HAND = "OPEN_HAND"
     PINCH = "PINCH"
     FIST = "FIST"
@@ -54,6 +57,8 @@ class InteractionMode(StrEnum):
 
 class GestureEvent(StrEnum):
     SELECT_HEART = "SELECT_HEART"
+    SELECT_LETTER = "SELECT_LETTER"
+    CHANGE_LETTER = "CHANGE_LETTER"
     BREAK = "BREAK"
 
 
@@ -80,6 +85,11 @@ class GestureController:
         "MIDDLE": (9, 10, 11, 12),
         "RING": (13, 14, 15, 16),
         "PINKY": (17, 18, 19, 20),
+    }
+    SHAPE_EVENTS = {
+        RawGesture.INDEX_RAISED: GestureEvent.SELECT_HEART,
+        RawGesture.TWO_FINGERS: GestureEvent.SELECT_LETTER,
+        RawGesture.THREE_FINGERS: GestureEvent.CHANGE_LETTER,
     }
     MODES = {
         RawGesture.OPEN_HAND: InteractionMode.REPEL,
@@ -109,6 +119,7 @@ class GestureController:
         self._time = 0.0
         self._snap_ready_at = 0.0
         self._awaiting_transform_release = False
+        self._shape_latches: dict[str, RawGesture] = {}
 
     @property
     def candidate(self) -> RawGesture:
@@ -124,9 +135,16 @@ class GestureController:
 
     @property
     def action(self) -> str:
-        if self.confirmed == RawGesture.INDEX_RAISED:
-            return GestureEvent.SELECT_HEART
-        return self.event or self.MODES.get(self.confirmed, "NONE")
+        return self.event or self.SHAPE_EVENTS.get(self.confirmed) or self.MODES.get(self.confirmed, "NONE")
+
+    def confirmation_delay(self, raw: RawGesture) -> float:
+        if raw == RawGesture.THREE_FINGERS:
+            return LETTER_CHANGE_HOLD_TIME
+        if raw in self.SHAPE_EVENTS:
+            return self.hold_time
+        if raw in self.MODES and self.hold_time > 0:
+            return CONTINUOUS_HOLD_TIME
+        return 0.0
 
     @property
     def finger_states(self) -> dict[str, dict[str, bool]]:
@@ -181,13 +199,18 @@ class GestureController:
         pinch_point = (points[4] + points[8]) * 0.5
         palm_motion = np.clip(palm_center - previous.palm_center, -35, 35) if previous else np.zeros(2)
         contact = gap < other_gaps.min() and self._distance(pinch_point, palm_center) > 0.3 * palm
+        raised = sum(fingers[name] for name in self.FINGER_LANDMARKS)
         if all(fingers.values()):
             raw = RawGesture.OPEN_HAND
         elif ratio < threshold and contact:
             raw = RawGesture.PINCH
-        elif fingers["INDEX"] and not any(fingers[name] for name in ("MIDDLE", "RING", "PINKY")):
+        elif raised == 1 and fingers["INDEX"]:
             raw = RawGesture.INDEX_RAISED
-        elif not any(fingers[name] for name in self.FINGER_LANDMARKS):
+        elif raised == 2 and not fingers["THUMB"]:
+            raw = RawGesture.TWO_FINGERS
+        elif raised == 3 and not fingers["THUMB"]:
+            raw = RawGesture.THREE_FINGERS
+        elif raised == 0:
             raw = RawGesture.FIST
         else:
             raw = RawGesture.IDLE
@@ -201,7 +224,7 @@ class GestureController:
         previous = self._snap_tracking.get(key)
         state = SnapState(gap, middle_relative)
         self._snap_tracking[key] = state
-        if self._time < self._snap_ready_at or hand.raw in (RawGesture.INDEX_RAISED, RawGesture.OPEN_HAND):
+        if self._time < self._snap_ready_at or (hand.raw in self.SHAPE_EVENTS or hand.raw == RawGesture.OPEN_HAND):
             return False
 
         armed_at = previous.armed_at if previous else None
@@ -255,6 +278,10 @@ class GestureController:
                 snaps[key] = points[12].copy()
 
         self._snap_tracking = {key: state for key, state in self._snap_tracking.items() if key in self.hands}
+        self._shape_latches = {
+            key: gesture for key, gesture in self._shape_latches.items()
+            if key in self.hands and self.hands[key].raw == gesture
+        }
         pins = tuple(sorted(key for key, hand in self.hands.items() if hand.raw == RawGesture.PINCH))
         if len(pins) == 2:
             self._awaiting_transform_release = True
@@ -268,7 +295,10 @@ class GestureController:
             raw, keys = RawGesture.SNAP, (min(snaps),)
         else:
             raw, keys = RawGesture.IDLE, ()
-            for preferred in (RawGesture.PINCH, RawGesture.OPEN_HAND, RawGesture.INDEX_RAISED, RawGesture.FIST):
+            for preferred in (
+                RawGesture.PINCH, RawGesture.OPEN_HAND, RawGesture.THREE_FINGERS,
+                RawGesture.TWO_FINGERS, RawGesture.INDEX_RAISED, RawGesture.FIST,
+            ):
                 if preferred == RawGesture.PINCH and self._awaiting_transform_release:
                     continue
                 matching = tuple(sorted(key for key, hand in self.hands.items() if hand.raw == preferred))
@@ -282,13 +312,8 @@ class GestureController:
         else:
             self.pending.elapsed += dt
 
-        delay = 0.0
-        if raw == RawGesture.INDEX_RAISED:
-            delay = self.hold_time
-        elif raw in self.MODES and self.hold_time > 0:
-            delay = CONTINUOUS_HOLD_TIME
-
-        confirmed = ConfirmedGesture(raw, keys) if self.pending.elapsed >= delay else ConfirmedGesture()
+        delay = self.confirmation_delay(raw)
+        confirmed = ConfirmedGesture(raw, keys) if self.pending.elapsed + 1e-9 >= delay else ConfirmedGesture()
         if confirmed.gesture == RawGesture.SNAP:
             self.event = GestureEvent.BREAK
             self.event_point = snaps[keys[0]]
@@ -296,8 +321,11 @@ class GestureController:
             self._snap_ready_at = self._time + self.snap_cooldown
             for state in self._snap_tracking.values():
                 state.armed_at = None
-        elif confirmed.gesture == RawGesture.INDEX_RAISED and self.confirmed != RawGesture.INDEX_RAISED:
-            self.event = GestureEvent.SELECT_HEART
+        elif confirmed.gesture in self.SHAPE_EVENTS:
+            hand_key = keys[0]
+            if self._shape_latches.get(hand_key) != raw:
+                self._shape_latches[hand_key] = raw
+                self.event = self.SHAPE_EVENTS[raw]
         self.confirmation = confirmed
         self.mode = self.MODES.get(self.confirmed, InteractionMode.IDLE)
         return self.confirmed

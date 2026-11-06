@@ -1,6 +1,9 @@
-"""Gera destinos para as partículas a partir da curva matemática do coração."""
+"""Gera os destinos das partículas do coração e das letras."""
 
 from __future__ import annotations
+
+from functools import lru_cache
+from string import ascii_uppercase
 
 import cv2
 import numpy as np
@@ -56,3 +59,24 @@ def generate_heart_targets(count: int = PARTICLE_COUNT, radius: float = 1.0) -> 
         axis = np.flatnonzero(canvas[:, center])
         points = np.vstack((points, (0, axis[len(axis) // 2] - center)))
     return points.astype(np.float32) * (radius / raster_scale)
+
+
+@lru_cache(maxsize=len(ascii_uppercase))
+def generate_letter_targets(letter: str, count: int = PARTICLE_COUNT) -> np.ndarray:
+    """Amostra o traço da letra e o centraliza no mesmo espaço local do coração."""
+    if len(letter) != 1 or letter not in ascii_uppercase or count <= 0:
+        raise ValueError("Use uma letra de A a Z e uma quantidade positiva de partículas.")
+
+    font, scale, stroke = cv2.FONT_HERSHEY_DUPLEX, 11.0, 24
+    (width, height), baseline = cv2.getTextSize(letter, font, scale, stroke)
+    margin = stroke
+    mask = np.zeros((height + baseline + 2 * margin, width + 2 * margin), dtype=np.uint8)
+    cv2.putText(mask, letter, (margin, height + margin), font, scale, 255, stroke)
+    y, x = np.nonzero(mask)
+    origin = np.array([(x.min() + x.max()) * 0.5, (y.min() + y.max()) * 0.5])
+    extent = max(np.ptp(x), np.ptp(y)) * 0.5
+    rng = np.random.default_rng(ord(letter))
+    sample = rng.choice(len(x), count, replace=count > len(x))
+    targets = ((np.column_stack((x[sample], y[sample])) - origin) * (0.9 / extent)).astype(np.float32)
+    targets.setflags(write=False)
+    return targets

@@ -1,8 +1,10 @@
-"""Aplica os gestos confirmados ao coração e coordena os modos de interação."""
+"""Aplica os gestos confirmados à forma atual e coordena os modos de interação."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from random import choice
+from string import ascii_uppercase
 
 import numpy as np
 
@@ -22,6 +24,7 @@ from config import (
 )
 from core.gesture_controller import GestureController, GestureEvent, InteractionMode
 from effects.particle_heart import ParticleHeartEffect
+from particles.shapes import generate_letter_targets
 
 
 @dataclass
@@ -40,8 +43,8 @@ class TransformReference:
 class EffectManager:
     def __init__(self, start_with_heart: bool = START_WITH_HEART):
         self.heart = ParticleHeartEffect(PARTICLE_COUNT)
-        self.heart_enabled = start_with_heart
-        self.active_effect = "PARTICLE_HEART" if self.heart_enabled else "FREE"
+        self.current_shape = "HEART" if start_with_heart else None
+        self.active_effect = self._shape_effect()
         self.interaction_mode = InteractionMode.SHAPE if self.heart_enabled else InteractionMode.FREE
         self.transform_center = np.array([CAMERA_WIDTH / 2, CAMERA_HEIGHT / 2], dtype=np.float32)
         self.transform_scale = 0.82
@@ -58,18 +61,37 @@ class EffectManager:
             system.positions[:] = rng.uniform((0, 0), (CAMERA_WIDTH, CAMERA_HEIGHT), size=system.positions.shape)
 
     @property
-    def current_shape(self) -> str | None:
-        return "HEART" if self.heart_enabled else None
+    def heart_enabled(self) -> bool:
+        return self.current_shape == "HEART"
+
+    def _shape_effect(self) -> str:
+        if self.current_shape is None:
+            return "FREE"
+        return "PARTICLE_HEART" if self.heart_enabled else "PARTICLE_LETTER"
+
+    def _select_shape(self, shape: str | None) -> None:
+        if shape == self.current_shape:
+            return
+        self.current_shape = shape
+        if shape is not None:
+            self.set_transform(tuple(self.transform_center), self.transform_scale, self.transform_rotation)
+        self.active_effect = self._shape_effect()
+
+    def _select_random_letter(self) -> None:
+        options = [letter for letter in ascii_uppercase if letter != self.current_shape]
+        self._select_shape(choice(options))
 
     def toggle_heart(self) -> None:
-        self.heart_enabled = not self.heart_enabled
-        self.active_effect = "PARTICLE_HEART" if self.heart_enabled else "FREE"
+        self._select_shape(None if self.heart_enabled else "HEART")
 
     def set_transform(self, center: tuple[float, float], scale: float, rotation: float) -> None:
         self.transform_center = np.asarray(center, dtype=np.float32)
         self.transform_scale = float(max(MIN_SCALE, min(scale, MAX_SCALE)))
         self.transform_rotation = float(rotation)
-        self.heart.set_transform(tuple(self.transform_center), self.transform_scale, self.transform_rotation)
+        geometry = None
+        if self.current_shape is not None and not self.heart_enabled:
+            geometry = generate_letter_targets(self.current_shape, self.heart.count)
+        self.heart.set_transform(tuple(self.transform_center), self.transform_scale, self.transform_rotation, geometry)
 
     def _update_transform(self, first: np.ndarray, second: np.ndarray) -> None:
         center = (first + second) * 0.5
@@ -113,15 +135,21 @@ class EffectManager:
             system.end_grab()
         self._grab_hand = grab_hand
         if controller.event == GestureEvent.SELECT_HEART:
-            self.heart_enabled = True
+            self._select_shape("HEART")
             self.heart.visible = True
+        elif controller.event == GestureEvent.SELECT_LETTER or (
+            controller.event == GestureEvent.CHANGE_LETTER
+            and self.current_shape is not None and not self.heart_enabled
+        ):
+            self._select_random_letter()
 
-        self.transform_active = self.heart_enabled and mode == InteractionMode.TRANSFORM
+        has_shape = self.current_shape is not None
+        self.transform_active = has_shape and mode == InteractionMode.TRANSFORM
         if not self.transform_active:
             self.transform_reference = None
-        base_mode = InteractionMode.SHAPE if self.heart_enabled else InteractionMode.FREE
+        base_mode = InteractionMode.SHAPE if has_shape else InteractionMode.FREE
         self.interaction_mode = mode if mode in (InteractionMode.REPEL, InteractionMode.GRAB) else base_mode
-        self.active_effect = "PARTICLE_HEART" if self.heart_enabled else "FREE"
+        self.active_effect = self._shape_effect()
         if self.transform_active:
             self.active_effect = "TRANSFORM"
             self.interaction_mode = InteractionMode.TRANSFORM
@@ -134,7 +162,7 @@ class EffectManager:
         elif mode == InteractionMode.GRAB:
             system.begin_or_update_grab(controls[0].pinch_point)
 
-        if self.heart_enabled:
+        if has_shape:
             self.heart.update(dt)
         else:
             height, width = frame.shape[:2]

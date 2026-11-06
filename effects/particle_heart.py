@@ -1,4 +1,4 @@
-"""Converte a geometria do coração em destinos para o sistema de partículas."""
+"""Aplica a transformação de uma geometria ao mesmo sistema de partículas."""
 
 from __future__ import annotations
 
@@ -23,12 +23,16 @@ class ParticleHeartEffect:
     def base_targets(self) -> np.ndarray:
         return self.system.base_targets
 
-    def set_transform(self, center: tuple[float, float], scale: float, rotation: float) -> None:
+    def set_transform(
+        self, center: tuple[float, float], scale: float, rotation: float,
+        base_targets: np.ndarray | None = None,
+    ) -> None:
         self.center = np.asarray(center, dtype=np.float32)
         self.scale = float(np.clip(scale, MIN_SCALE, MAX_SCALE))
         self.rotation = float(rotation)
         base_scale = HEART_BASE_SCALE * self.scale
-        transformed = rotate_points(self.base_targets, self.rotation)
+        geometry = self.base_targets if base_targets is None else base_targets
+        transformed = rotate_points(geometry, self.rotation)
         transformed *= base_scale
         transformed += self.center
         self.system.set_targets(transformed)

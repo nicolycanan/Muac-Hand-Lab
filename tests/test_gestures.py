@@ -405,3 +405,79 @@ def test_transform_overlay_connects_pinch_points():
     overlay.fill(0)
     draw_hand_controls(overlay, controller, manager)
     assert not overlay.any()
+
+
+def test_two_fingers_select_letter_and_three_held_change_once_per_pose(monkeypatch):
+    from string import ascii_uppercase
+
+    from core.gesture_controller import GestureEvent
+    from effects import effect_manager
+    from particles.shapes import generate_letter_targets
+
+    monkeypatch.setattr(effect_manager, "choice", lambda options: options[0])
+    controller = GestureController()
+    manager = EffectManager(start_with_heart=True)
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    two = _make_hand(extended=("INDEX", "MIDDLE"))
+    three = _make_hand(extended=("INDEX", "MIDDLE", "RING"))
+    system = manager.heart.system
+    heart_targets = system.targets.copy()
+
+    def step(hands, seconds=0.1):
+        controller.update(hands, seconds)
+        manager.update(frame, controller, seconds)
+        return controller.event
+
+    step([three])
+    for _ in range(20):
+        step([three])
+    assert manager.current_shape == "HEART"
+
+    step([two])
+    for _ in range(6):
+        assert step([two]) is None
+    assert step([two]) == GestureEvent.SELECT_LETTER
+    assert manager.current_shape == "A"
+
+    step([three])
+    for _ in range(19):
+        assert step([three]) is None
+    assert manager.current_shape == "A"
+    assert step([three]) == GestureEvent.CHANGE_LETTER
+    assert manager.current_shape == "B"
+    for _ in range(25):
+        assert step([three]) is None
+    assert manager.current_shape == "B"
+
+    step([])
+    step([three])
+    for _ in range(20):
+        step([three])
+    assert manager.current_shape == "A"
+    assert manager.current_shape in ascii_uppercase
+    assert manager.heart.system is system
+    np.testing.assert_allclose(
+        system.targets,
+        generate_letter_targets("A") * (120 * manager.transform_scale) + manager.transform_center,
+    )
+
+    index = _make_hand()
+    step([index])
+    for _ in range(7):
+        step([index])
+    assert manager.current_shape == "HEART"
+    np.testing.assert_array_equal(system.targets, heart_targets)
+
+
+def test_releasing_three_fingers_early_restarts_the_timer():
+    controller = GestureController()
+    three = _make_hand(extended=("INDEX", "MIDDLE", "RING"))
+    for _ in range(19):
+        controller.update([three], 0.1)
+        assert not controller.triggered
+    controller.update([], 0.1)
+    for _ in range(20):
+        controller.update([three], 0.1)
+        assert not controller.triggered
+    controller.update([three], 0.1)
+    assert controller.event == "CHANGE_LETTER"
