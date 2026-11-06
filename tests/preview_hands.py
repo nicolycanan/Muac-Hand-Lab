@@ -1,8 +1,15 @@
 """Preview-only MediaPipe hand tracker without particle effects."""
 
+import sys
+from pathlib import Path
+
 import cv2
 import mediapipe as mp
 import numpy as np
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from config import CAMERA_BACKEND, CAMERA_FPS, CAMERA_HEIGHT, CAMERA_INDEX, CAMERA_WIDTH
 

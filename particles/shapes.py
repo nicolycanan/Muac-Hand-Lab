@@ -14,7 +14,7 @@ def heart_parametric(t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         - 2.0 * np.cos(3.0 * t)
         - np.cos(4.0 * t)
     )
-    return x, y
+    return x, -y
 
 
 def generate_heart_targets(count: int = 1500, radius: float = 1.0) -> np.ndarray:
@@ -29,8 +29,8 @@ def generate_heart_targets(count: int = 1500, radius: float = 1.0) -> np.ndarray
     canvas = np.zeros((512, 512), dtype=np.uint8)
     pts = np.column_stack(
         [
-            (x_norm * 200.0 + 256.0).astype(np.int32),
-            (y_norm * 200.0 + 256.0).astype(np.int32),
+            (x_norm * 160.0 + 256.0).astype(np.int32),
+            (y_norm * 160.0 + 256.0).astype(np.int32),
         ]
     )
     cv2.fillPoly(canvas, [pts], 255)
@@ -41,7 +41,7 @@ def generate_heart_targets(count: int = 1500, radius: float = 1.0) -> np.ndarray
     rng = np.random.default_rng(0)
     sample = rng.choice(len(xs), size=count, replace=False)
     coords = np.column_stack((xs[sample], ys[sample])).astype(np.float32)
-    coords[:, 0] = (coords[:, 0] - 256.0) / 200.0
-    coords[:, 1] = (coords[:, 1] - 256.0) / 200.0
+    coords[:, 0] = (coords[:, 0] - 256.0) / 160.0
+    coords[:, 1] = -(coords[:, 1] - 256.0) / 160.0
     coords *= radius
     return coords.astype(np.float32)

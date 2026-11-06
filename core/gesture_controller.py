@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
 
 
@@ -11,44 +9,43 @@ class GestureController:
     def __init__(self, hold_time: float = 0.5, pinch_threshold: float = 0.40):
         self.hold_time = hold_time
         self.pinch_threshold = pinch_threshold
+        self.candidate = "IDLE"
         self.confirmed = "IDLE"
         self.active = "IDLE"
         self.timer = 0.0
+        self.triggered = False
 
     @staticmethod
     def _distance(a: np.ndarray, b: np.ndarray) -> float:
         return float(np.linalg.norm(a - b))
 
-    @staticmethod
-    def _mean(points: np.ndarray) -> np.ndarray:
-        return points.mean(axis=0)
-
-    def _finger_is_extended(self, hand: dict, tip_index: int, pip_index: int, mcp_index: int) -> bool:
+    def _finger_is_extended(self, hand: dict, tip_index: int, pip_index: int, mcp_index: int, dip_index: int | None = None) -> bool:
         tips = hand["landmarks"]
         tip = tips[tip_index]
         pip = tips[pip_index]
         mcp = tips[mcp_index]
-        palm_size = hand["palm_size"]
-        if palm_size <= 0:
-            return False
-        extension = np.linalg.norm(tip - mcp) / max(palm_size, 1.0)
-        bend = np.linalg.norm(pip - mcp) / max(palm_size, 1.0)
-        return extension > 0.75 and bend < 0.9
+        palm_size = max(float(hand["palm_size"]), 1.0)
+        extension = np.linalg.norm(tip - mcp) / palm_size
+        bend = np.linalg.norm(pip - mcp) / palm_size
+        if dip_index is not None:
+            dip = tips[dip_index]
+            dip_bend = np.linalg.norm(dip - mcp) / palm_size
+            return extension > 0.70 and bend < 0.85 and dip_bend < 1.0
+        return extension > 0.70 and bend < 0.85
 
     def _estimate_open_hand(self, hand: dict) -> float:
         if not hand["landmarks"].size:
             return 0.0
-        tips = hand["landmarks"]
         palm = max(hand["palm_size"], 1.0)
         finger_scores = [
-            self._finger_is_extended(hand, 8, 6, 5),
-            self._finger_is_extended(hand, 12, 10, 9),
-            self._finger_is_extended(hand, 16, 14, 13),
-            self._finger_is_extended(hand, 20, 18, 17),
+            self._finger_is_extended(hand, 8, 6, 5, 7),
+            self._finger_is_extended(hand, 12, 10, 9, 11),
+            self._finger_is_extended(hand, 16, 14, 13, 15),
+            self._finger_is_extended(hand, 20, 18, 17, 19),
         ]
-        open_score = sum(int(v) for v in finger_scores) / 4.0
-        thumb_score = (self._distance(tips[4], tips[2]) / palm) > 0.65
-        return float(open_score * 0.8 + (0.2 if thumb_score else 0.0))
+        open_score = float(sum(int(v) for v in finger_scores) / 4.0)
+        thumb_score = (self._distance(hand["landmarks"][4], hand["landmarks"][2]) / palm) > 0.65
+        return float(open_score * 0.85 + (0.15 if thumb_score else 0.0))
 
     def _estimate_fist(self, hand: dict) -> float:
         tips = hand["landmarks"]
@@ -59,15 +56,15 @@ class GestureController:
             self._distance(tips[16], tips[13]) / palm,
             self._distance(tips[20], tips[17]) / palm,
         ]
-        return float(1.0 if sum(v < 0.7 for v in finger_bend) >= 3 else 0.0)
+        return float(1.0 if sum(v < 0.65 for v in finger_bend) >= 3 else 0.0)
 
     def _estimate_index_raise(self, hand: dict) -> float:
         tips = hand["landmarks"]
         palm = max(hand["palm_size"], 1.0)
-        index_ext = self._finger_is_extended(hand, 8, 6, 5)
-        middle_fold = self._distance(tips[12], tips[9]) / palm < 0.55
-        ring_fold = self._distance(tips[16], tips[13]) / palm < 0.55
-        pinky_fold = self._distance(tips[20], tips[17]) / palm < 0.55
+        index_ext = self._finger_is_extended(hand, 8, 6, 5, 7)
+        middle_fold = self._distance(tips[12], tips[9]) / palm < 0.60
+        ring_fold = self._distance(tips[16], tips[13]) / palm < 0.60
+        pinky_fold = self._distance(tips[20], tips[17]) / palm < 0.60
         if index_ext and middle_fold and ring_fold and pinky_fold:
             return 1.0
         return 0.0
@@ -76,7 +73,13 @@ class GestureController:
         tips = hand["landmarks"]
         palm = max(hand["palm_size"], 1.0)
         pinch_dist = self._distance(tips[4], tips[8]) / palm
-        return float(1.0 if pinch_dist < self.pinch_threshold else 0.0)
+        other_bent = [
+            self._distance(tips[12], tips[9]) / palm,
+            self._distance(tips[16], tips[13]) / palm,
+            self._distance(tips[20], tips[17]) / palm,
+        ]
+        no_flat_fingers = sum(v < 0.85 for v in other_bent) >= 2
+        return float(1.0 if pinch_dist < self.pinch_threshold and no_flat_fingers else 0.0)
 
     def _has_two_hand_pinch(self, hands: list[dict]) -> float:
         if len(hands) < 2:
@@ -94,17 +97,28 @@ class GestureController:
 
     def update(self, hands: list[dict], dt: float) -> str:
         if not hands:
+            if self.candidate == "TRANSFORM" and self.confirmed == "TRANSFORM":
+                return "TRANSFORM"
+            self.candidate = "IDLE"
             self.active = "IDLE"
             self.confirmed = "IDLE"
             self.timer = 0.0
+            self.triggered = False
             return "IDLE"
 
         two_hand = self._has_two_hand_pinch(hands)
         if two_hand > 0.0:
-            self.active = "TRANSFORM"
-            self.timer += dt
+            if self.candidate != "TRANSFORM":
+                self.candidate = "TRANSFORM"
+                self.timer = 0.0
+            else:
+                self.timer += dt
             if self.timer >= self.hold_time:
+                self.active = "TRANSFORM"
                 self.confirmed = "TRANSFORM"
+                self.triggered = True
+            else:
+                self.triggered = False
             return self.confirmed
 
         scores = {
@@ -120,22 +134,26 @@ class GestureController:
             best_gesture = max(scores, key=scores.get)
         best_score = scores[best_gesture]
         if best_score < 0.5:
-            best_gesture = "IDLE"
-
-        if best_gesture == "IDLE":
-            self.timer = 0.0
+            self.candidate = "IDLE"
             self.active = "IDLE"
             self.confirmed = "IDLE"
+            self.timer = 0.0
+            self.triggered = False
             return "IDLE"
 
-        if best_gesture != self.active:
-            self.active = best_gesture
+        if best_gesture != self.candidate:
+            self.candidate = best_gesture
             self.timer = 0.0
+            self.triggered = False
         else:
             self.timer += dt
 
         if self.timer >= self.hold_time:
+            self.active = best_gesture
             self.confirmed = best_gesture
+            self.triggered = True
+        else:
+            self.triggered = False
         return self.confirmed
 
     def detect_two_hand_transform(self, hands: list[dict]) -> bool:

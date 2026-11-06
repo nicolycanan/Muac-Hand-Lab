@@ -5,10 +5,12 @@ from __future__ import annotations
 import time
 
 import cv2
+import mediapipe as mp
 import numpy as np
 
 from config import (
     CAMERA_BACKEND,
+    CAMERA_DARKNESS,
     CAMERA_FPS,
     CAMERA_HEIGHT,
     CAMERA_INDEX,
@@ -93,13 +95,14 @@ class MagicHandApp:
             landmarks = hand["landmarks"]
             label = hand.get("label", "LEFT" if idx == 0 else "RIGHT")
             color = (0, 255, 255) if label == "LEFT" else (255, 0, 255)
-            for point_index in range(len(landmarks) - 1):
-                pt_a = tuple(np.round(landmarks[point_index]).astype(int))
-                pt_b = tuple(np.round(landmarks[point_index + 1]).astype(int))
-                cv2.line(frame, pt_a, pt_b, color, 1, cv2.LINE_AA)
-            for point_index, point in enumerate(landmarks):
+            for connection in mp.solutions.hands.HAND_CONNECTIONS:
+                a_index, b_index = connection
+                pt_a = tuple(np.round(landmarks[a_index]).astype(int))
+                pt_b = tuple(np.round(landmarks[b_index]).astype(int))
+                cv2.line(frame, pt_a, pt_b, (255, 255, 255), 1, cv2.LINE_AA)
+            for point in landmarks:
                 center = tuple(np.round(point).astype(int))
-                cv2.circle(frame, center, 2, color, -1)
+                cv2.circle(frame, center, 2, (0, 0, 255), -1)
             cv2.putText(frame, label, tuple(np.round(landmarks[0]).astype(int)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
 
     def run(self):
@@ -118,6 +121,7 @@ class MagicHandApp:
                 break
 
             frame = cv2.flip(frame, 1)
+            frame = cv2.addWeighted(frame, 1.0 - CAMERA_DARKNESS, np.zeros_like(frame), CAMERA_DARKNESS, 0.0)
             self.state.camera_resolution = f"{frame.shape[1]}x{frame.shape[0]}"
             self.state.display_resolution = f"{self.display_width}x{self.display_height}"
             self.state.tracker_active = self.tracker.is_active
@@ -129,13 +133,17 @@ class MagicHandApp:
             hands = self.tracker.detect(frame)
             self.state.hands_detected = len(hands)
             gesture = "IDLE"
-            if self.state.gesture_enabled and hands:
+            if self.state.gesture_enabled:
                 gesture = self.gesture_controller.update(hands, dt)
-                self.state.gesture = gesture
-                self.state.confirmed_gesture = gesture if gesture != "IDLE" else "IDLE"
             else:
-                self.state.gesture = "IDLE"
-                self.state.confirmed_gesture = "IDLE"
+                self.gesture_controller.candidate = "IDLE"
+                self.gesture_controller.confirmed = "IDLE"
+                self.gesture_controller.active = "IDLE"
+                self.gesture_controller.timer = 0.0
+                self.gesture_controller.triggered = False
+                gesture = "IDLE"
+            self.state.gesture = gesture
+            self.state.confirmed_gesture = gesture if gesture != "IDLE" else "IDLE"
 
             self.state.active_effect = self.effect_manager.update(frame, hands, gesture, dt)
             if self.effect_manager.heart_enabled and self.state.active_effect == "IDLE":

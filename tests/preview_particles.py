@@ -1,6 +1,13 @@
 """Preview-only particle heart without MediaPipe."""
 
+import sys
+from pathlib import Path
+
 import cv2
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from config import CAMERA_BACKEND, CAMERA_FPS, CAMERA_HEIGHT, CAMERA_INDEX, CAMERA_WIDTH, DISPLAY_HEIGHT, DISPLAY_WIDTH
 from effects.effect_manager import EffectManager

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from config import PARTICLE_COUNT
+from config import HEART_BASE_SCALE, PARTICLE_COUNT
 from particles.particle_system import ParticleSystem
 from particles.shapes import generate_heart_targets
 from particles.transforms import rotate_points, scale_points, translate_points
@@ -13,7 +13,7 @@ from particles.transforms import rotate_points, scale_points, translate_points
 class ParticleHeartEffect:
     def __init__(self, count: int = PARTICLE_COUNT):
         self.count = count
-        self.base_targets = generate_heart_targets(count)
+        self.base_targets = generate_heart_targets(count, radius=0.9)
         self.system = ParticleSystem(count=count, initial_targets=self.base_targets.copy())
         self.center = np.array([0.0, 0.0], dtype=np.float32)
         self.scale = 1.0
@@ -24,7 +24,7 @@ class ParticleHeartEffect:
         self.center = np.asarray(center, dtype=np.float32)
         self.scale = float(scale)
         self.rotation = float(rotation)
-        base_scale = 180.0 * max(0.35, self.scale)
+        base_scale = HEART_BASE_SCALE * max(0.45, min(1.15, self.scale))
         transformed = self.base_targets.copy() * base_scale
         transformed = rotate_points(transformed, self.rotation, center=(0.0, 0.0))
         transformed = translate_points(transformed, self.center[0], self.center[1])
