@@ -13,6 +13,9 @@ from config import (
     GESTURE_HOLD_TIME,
     LETTER_CHANGE_HOLD_TIME,
     PINCH_THRESHOLD,
+    RECTANGLE_L_MAX_ANGLE,
+    RECTANGLE_L_MIN_ANGLE,
+    RECTANGLE_TRACKING_GRACE_FRAMES,
     SNAP_CLOSE_RATIO,
     SNAP_COOLDOWN,
     SNAP_MAX_TIME,
@@ -23,6 +26,7 @@ from config import (
 
 class RawGesture(StrEnum):
     IDLE = "IDLE"
+    RECTANGLE = "RECTANGLE"
     INDEX_RAISED = "INDEX_RAISED"
     TWO_FINGERS = "TWO_FINGERS"
     THREE_FINGERS = "THREE_FINGERS"
@@ -70,6 +74,8 @@ class HandGesture:
     pinch_point: np.ndarray
     palm_center: np.ndarray
     palm_motion: np.ndarray
+    palm_size: float
+    rectangle_point: np.ndarray | None = None
 
 
 @dataclass
@@ -96,6 +102,14 @@ class GestureController:
         RawGesture.PINCH: InteractionMode.GRAB,
         RawGesture.TRANSFORM: InteractionMode.TRANSFORM,
     }
+    RECOGNITION_PRIORITY = (
+        RawGesture.PINCH,
+        RawGesture.OPEN_HAND,
+        RawGesture.THREE_FINGERS,
+        RawGesture.TWO_FINGERS,
+        RawGesture.INDEX_RAISED,
+        RawGesture.FIST,
+    )
 
     def __init__(
         self,
@@ -120,6 +134,8 @@ class GestureController:
         self._snap_ready_at = 0.0
         self._awaiting_transform_release = False
         self._shape_latches: dict[str, RawGesture] = {}
+        self._rectangle_latched = False
+        self._rectangle_lost_frames = 0
 
     @property
     def candidate(self) -> RawGesture:
@@ -184,6 +200,31 @@ class GestureController:
             and self._distance(points[4], points[5]) >= 0.55 * palm
         )
 
+    def _rectangle_point(self, points: np.ndarray, palm: float, fingers: dict[str, bool]) -> np.ndarray | None:
+        thumb_direction = points[4] - points[2]
+        index_direction = points[8] - points[5]
+        thumb_length = float(np.linalg.norm(thumb_direction))
+        index_length = float(np.linalg.norm(index_direction))
+        denominator = thumb_length * index_length
+        if denominator <= 1e-6:
+            return None
+        angle = float(np.degrees(np.arccos(np.clip(
+            np.dot(thumb_direction, index_direction) / denominator, -1.0, 1.0,
+        ))))
+        thumb_extended = (
+            self._angle(points[1], points[2], points[3]) >= 125.0
+            and self._angle(points[2], points[3], points[4]) >= 125.0
+            and self._distance(points[4], points[5]) >= 0.55 * palm
+        )
+        if (
+            thumb_extended
+            and fingers["INDEX"]
+            and not any(fingers[name] for name in ("MIDDLE", "RING", "PINKY"))
+            and RECTANGLE_L_MIN_ANGLE <= angle <= RECTANGLE_L_MAX_ANGLE
+        ):
+            return (points[4] + points[8]) * 0.5
+        return None
+
     def _read_hand(self, points: np.ndarray, palm: float, previous: HandGesture | None) -> HandGesture:
         fingers = {"THUMB": self._thumb_extension(points, palm)}
         fingers.update({
@@ -198,6 +239,7 @@ class GestureController:
         palm_center = points[[0, 5, 9, 13, 17]].mean(axis=0)
         pinch_point = (points[4] + points[8]) * 0.5
         palm_motion = np.clip(palm_center - previous.palm_center, -35, 35) if previous else np.zeros(2)
+        rectangle_point = self._rectangle_point(points, palm, fingers)
         contact = gap < other_gaps.min() and self._distance(pinch_point, palm_center) > 0.3 * palm
         raised = sum(fingers[name] for name in self.FINGER_LANDMARKS)
         if all(fingers.values()):
@@ -214,7 +256,7 @@ class GestureController:
             raw = RawGesture.FIST
         else:
             raw = RawGesture.IDLE
-        return HandGesture(raw, fingers, ratio, pinch_point, palm_center, palm_motion)
+        return HandGesture(raw, fingers, ratio, pinch_point, palm_center, palm_motion, palm, rectangle_point)
 
     def _snap_detected(
         self, key: str, hand: HandGesture, points: np.ndarray, palm: float, dt: float
@@ -224,7 +266,11 @@ class GestureController:
         previous = self._snap_tracking.get(key)
         state = SnapState(gap, middle_relative)
         self._snap_tracking[key] = state
-        if self._time < self._snap_ready_at or (hand.raw in self.SHAPE_EVENTS or hand.raw == RawGesture.OPEN_HAND):
+        if self._time < self._snap_ready_at or (
+            hand.raw in self.SHAPE_EVENTS
+            or hand.raw == RawGesture.OPEN_HAND
+            or hand.rectangle_point is not None
+        ):
             return False
 
         armed_at = previous.armed_at if previous else None
@@ -259,10 +305,11 @@ class GestureController:
             yield key, points, palm
 
     def detect_two_hand_transform(self, hands: list[dict]) -> bool:
-        return sum(
-            self._read_hand(points, palm, self.hands.get(key)).raw == RawGesture.PINCH
-            for key, points, palm in self._hand_inputs(hands)
-        ) == 2
+        pinch_count = 0
+        for key, points, palm in self._hand_inputs(hands):
+            hand = self._read_hand(points, palm, self.hands.get(key))
+            pinch_count += hand.raw == RawGesture.PINCH and hand.rectangle_point is None
+        return pinch_count == 2
 
     def update(self, hands: list[dict], dt: float) -> RawGesture:
         dt = max(float(dt), 0.0)
@@ -282,12 +329,34 @@ class GestureController:
             key: gesture for key, gesture in self._shape_latches.items()
             if key in self.hands and self.hands[key].raw == gesture
         }
-        pins = tuple(sorted(key for key, hand in self.hands.items() if hand.raw == RawGesture.PINCH))
+        pins = tuple(sorted(
+            key for key, hand in self.hands.items()
+            if hand.raw == RawGesture.PINCH and hand.rectangle_point is None
+        ))
+        rectangle_hands = tuple(sorted(
+            key for key, hand in self.hands.items() if hand.rectangle_point is not None
+        ))
+        if len(rectangle_hands) == 2:
+            self._rectangle_latched = True
+            self._rectangle_lost_frames = 0
+        elif rectangle_hands:
+            self._rectangle_lost_frames = 0
+        elif self.hands:
+            self._rectangle_latched = False
+            self._rectangle_lost_frames = 0
+        elif self._rectangle_latched:
+            self._rectangle_lost_frames += 1
+            if self._rectangle_lost_frames > RECTANGLE_TRACKING_GRACE_FRAMES:
+                self._rectangle_latched = False
+
+        # Global priority: paired L rectangle > TRANSFORM > SNAP > single-hand gestures.
         if len(pins) == 2:
             self._awaiting_transform_release = True
         elif self.hands and (not pins or len(self.hands) == 2):
             self._awaiting_transform_release = False
-        if len(pins) == 2:
+        if self._rectangle_latched and rectangle_hands:
+            raw, keys = RawGesture.RECTANGLE, rectangle_hands
+        elif len(pins) == 2:
             raw, keys = RawGesture.TRANSFORM, pins
             for state in self._snap_tracking.values():
                 state.armed_at = None
@@ -295,10 +364,7 @@ class GestureController:
             raw, keys = RawGesture.SNAP, (min(snaps),)
         else:
             raw, keys = RawGesture.IDLE, ()
-            for preferred in (
-                RawGesture.PINCH, RawGesture.OPEN_HAND, RawGesture.THREE_FINGERS,
-                RawGesture.TWO_FINGERS, RawGesture.INDEX_RAISED, RawGesture.FIST,
-            ):
+            for preferred in self.RECOGNITION_PRIORITY:
                 if preferred == RawGesture.PINCH and self._awaiting_transform_release:
                     continue
                 matching = tuple(sorted(key for key, hand in self.hands.items() if hand.raw == preferred))

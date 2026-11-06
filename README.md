@@ -46,6 +46,7 @@ O MUAC inicia com partículas livres. Levante o indicador para formar o coraçã
 | Pinça com polegar e indicador | Captura e arrasta uma nuvem de partículas. Ao soltar, elas voltam à forma ativa. |
 | Estalo com polegar e dedo médio | Dispersa as partículas uma vez e deixa a forma ativa se recompor. |
 | Duas pinças simultâneas | O ponto médio desloca a forma, a distância ajusta a escala e a inclinação gira a forma. Uma linha marca os pontos de pinça e exibe a escala e o ângulo. Soltar mantém a transformação aplicada. |
+| Polegar e indicador em L nas duas mãos | Aproxime as mãos para armar e depois afaste-as para desenhar um retângulo cyan de contorno. As mãos controlam cantos opostos; trocar o gesto fecha o retângulo gradualmente. |
 
 ## Teclado
 

@@ -56,6 +56,19 @@ SNAP_RELEASE_RATIO = 0.85
 SNAP_MAX_TIME = 0.50
 SNAP_MIN_SPEED = 10.0  # Deslocamento mínimo do dedo médio, em pixels por quadro a 30 FPS.
 SNAP_COOLDOWN = 0.8
+
+# Retângulo de contorno. As distâncias usam a média do tamanho das palmas,
+# tornando os limiares proporcionais em diferentes resoluções e tamanhos de mão.
+RECTANGLE_ARM_DISTANCE_PALMS = 2.0  # Arma se os pontos de referência estiverem a até 2 palmas.
+RECTANGLE_START_SEPARATION_PALMS = 0.35  # Abertura adicional necessária após armar.
+RECTANGLE_POINT_SMOOTHING = 0.35  # Fator EMA por quadro; valores maiores seguem mais rápido.
+RECTANGLE_TRACKING_GRACE_FRAMES = 4  # Quadros sem mãos antes de iniciar o fechamento.
+RECTANGLE_FADE_SECONDS = 0.25  # Duração do fade ao perder o gesto ou tracking.
+RECTANGLE_COLOR = (255, 255, 0)  # Cyan em BGR.
+RECTANGLE_THICKNESS = 2  # Espessura da borda OpenCV, em pixels.
+RECTANGLE_L_MIN_ANGLE = 35.0  # Ângulo mínimo entre os eixos do polegar e indicador.
+RECTANGLE_L_MAX_ANGLE = 145.0  # Ângulo máximo entre os eixos do polegar e indicador.
+
 SHOW_FPS = True
 
 TEST_MODE = False

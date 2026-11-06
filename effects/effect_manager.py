@@ -24,6 +24,7 @@ from config import (
 )
 from core.gesture_controller import GestureController, GestureEvent, InteractionMode
 from effects.particle_heart import ParticleHeartEffect
+from effects.rectangle_frame import RectangleFrame
 from particles.shapes import generate_letter_targets
 
 
@@ -52,6 +53,7 @@ class EffectManager:
         self.transform_reference: TransformReference | None = None
         self._grab_hand: str | None = None
         self.transform_active = False
+        self.rectangle_frame = RectangleFrame()
         self.heart.set_transform(tuple(self.transform_center), self.transform_scale, 0.0)
         system = self.heart.system
         rng = np.random.default_rng()
@@ -168,6 +170,9 @@ class EffectManager:
             height, width = frame.shape[:2]
             system.update(dt, force=0.0, damping=0.97, bounds=(width, height))
         self.draw(frame)
+        self.rectangle_frame.update(frame, controller.hands, dt)
+        if self.rectangle_frame.visible:
+            self.active_effect = "RECTANGLE_FRAME"
         return self.active_effect
 
     def draw(self, frame) -> None:
