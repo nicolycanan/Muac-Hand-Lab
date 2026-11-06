@@ -64,7 +64,7 @@ def _make_hand(
 def test_index_raised_is_not_open_hand_or_break():
     controller = GestureController(hold_time=0.0)
     hand = _make_hand(extended=("INDEX",))
-    manager = EffectManager()
+    manager = EffectManager(start_with_heart=True)
     scatter_calls = []
     explode_calls = []
     manager.heart.system.scatter = lambda *args, **kwargs: scatter_calls.append((args, kwargs))
@@ -101,7 +101,7 @@ def test_five_extended_fingers_are_open_hand():
 def test_fist_has_no_effect_action():
     controller = GestureController(hold_time=0.0)
     hand = _make_hand(extended=())
-    manager = EffectManager()
+    manager = EffectManager(start_with_heart=True)
     explode_calls = []
     manager.heart.system.explode = lambda **kwargs: explode_calls.append(kwargs)
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -128,7 +128,7 @@ def test_single_pinch_is_grab_and_two_pinches_transform():
 def test_snap_emits_break_once_after_contact_and_fast_separation():
     controller = GestureController(hold_time=0.0)
     hand = _make_hand(extended=())
-    manager = EffectManager()
+    manager = EffectManager(start_with_heart=True)
     system = manager.heart.system
     explode_calls = []
     original_break = system.break_apart
@@ -176,7 +176,7 @@ def test_open_hand_repels_locally_without_global_scatter():
         center=(100, 100),
         extended=("THUMB", "INDEX", "MIDDLE", "RING", "PINKY"),
     )
-    manager = EffectManager()
+    manager = EffectManager(start_with_heart=True)
     system = manager.heart.system
     system.positions[:] = np.array([100.0, 100.0], dtype=np.float32)
     system.positions[-1] = (400, 400)
@@ -198,7 +198,7 @@ def test_open_hand_repels_locally_without_global_scatter():
 def test_pinch_grabs_nearby_particles_then_releases_them_to_targets():
     controller = GestureController(hold_time=0.0)
     hand = _make_hand(center=(100, 100), extended=(), pinch=True)
-    manager = EffectManager()
+    manager = EffectManager(start_with_heart=True)
     system = manager.heart.system
     system.positions[:] = np.array([300.0, 300.0], dtype=np.float32)
     system.targets[:] = system.positions
@@ -243,7 +243,7 @@ def test_pinch_hysteresis_keeps_gesture_until_release_threshold():
 
 def test_transform_moves_scales_rotates_and_preserves_on_release():
     controller = GestureController(hold_time=0.0)
-    manager = EffectManager()
+    manager = EffectManager(start_with_heart=True)
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
     left = _make_hand(center=(100, 100), extended=(), pinch=True, label="LEFT")
     right = _make_hand(center=(300, 100), extended=(), pinch=True, label="RIGHT")
@@ -278,7 +278,7 @@ def test_transform_moves_scales_rotates_and_preserves_on_release():
 
 
 def test_transform_angle_wrap_and_degenerate_baseline():
-    manager = EffectManager()
+    manager = EffectManager(start_with_heart=True)
     origin = np.array((260, 180), dtype=np.float32)
 
     def point(degrees):
@@ -327,7 +327,6 @@ def test_snap_rejects_slow_release_old_contact_and_cooldown_after_tracking_loss(
 def test_selection_holds_and_persists_after_tracking_loss():
     controller = GestureController()
     manager = EffectManager()
-    manager.toggle_heart()
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
     hand = _make_hand()
 
@@ -385,3 +384,24 @@ def test_two_pinches_take_priority_over_snap_release():
     left["landmarks"][[8, 12]] = ((5, -65), (40, -65))
     assert controller.update([left, right], 1 / 30) == "TRANSFORM"
     assert not controller.triggered
+
+
+def test_transform_overlay_connects_pinch_points():
+    from rendering.hud import draw_hand_controls
+
+    controller = GestureController(hold_time=0.0)
+    manager = EffectManager(start_with_heart=True)
+    left = _make_hand(center=(150, 265), extended=(), pinch=True, label="LEFT")
+    right = _make_hand(center=(450, 265), extended=(), pinch=True, label="RIGHT")
+    controller.update([left, right], 1 / 30)
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    manager.update(frame, controller, 1 / 30)
+
+    overlay = np.zeros_like(frame)
+    draw_hand_controls(overlay, controller, manager)
+    assert np.all(overlay[200, 155:446].any(axis=1))
+    controller.update([], 1 / 30)
+    manager.update(frame, controller, 1 / 30)
+    overlay.fill(0)
+    draw_hand_controls(overlay, controller, manager)
+    assert not overlay.any()

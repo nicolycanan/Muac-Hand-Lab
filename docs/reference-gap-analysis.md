@@ -17,7 +17,11 @@ A referência examinada foi o [commit `cc1c251`](https://github.com/HaiDuong1810
 | `break_apart()` e loop de SNAP | Testa contato, separação e deslocamento do médio. Aplica impulso radial e muda para FREE. | Detectava separação sem expiração do contato e perdia o cooldown quando a mão sumia. A explosão usava ruído. | Contato a 0,48, soltura a 0,85, janela de 0,50 s e cooldown global de 0,8 s. Mede a velocidade do médio em relação à palma e usa o ponto de soltura para o impulso radial. O coração atual se reconstrói. |
 | `move_shape()`, `scale_shape()`, `rotate_shape()` e loop de duas mãos | Suaviza deslocamentos, usa o meio das pinças como pivô de escala/rotação e corrige os limites da tela | Calculava transformações sem suavização. A escala visível parava em 1,15 e a rotação podia saltar. | Desloca pelo meio das pinças e transforma em torno do próprio centro da forma. Recalcula os destinos a partir da base imutável. Usa escala de 0,45 a 2,0, multiplicador de 0,97 a 1,03 por quadro e giro de até 4° por quadro, convertido para radianos. A linha das pinças tem período de 180°. Ao soltar ou perder uma mão, preserva a transformação e captura nova referência ao voltar. A forma pode sair parcialmente do quadro. |
 | `draw()` e `src/config.py` | 2.000 partículas com raio 1 no código. Renderiza pixels vetorizados com cores dos assets. | 1.500 partículas, círculos antialias por partícula e halo | 2.000 partículas vermelhas, raio de 1 px e escrita vetorizada. |
-| `src/hand_tracker.py` e captura em `main.py` | Câmera 0 a 640 × 480, MediaPipe com entrada de 256 × 192 e até duas mãos | Iriun por DirectShow, flip horizontal, BGR → RGB, dois conjuntos de landmarks e preview próprio | Preserva a entrada de 640 × 480, o tracker, a captura, o desenho e a tecla M. D exibe diagnóstico por mão e a decisão global. |
+| `src/hand_tracker.py` e captura em `main.py` | Câmera 0 a 640 × 480, MediaPipe com entrada de 256 × 192 e até duas mãos | Iriun por DirectShow, flip horizontal, BGR → RGB, dois conjuntos de landmarks e preview próprio | A entrada do tracker fica em 640 × 480. O seletor começa no índice 0 e permite trocar a câmera sem fechar a janela. M alterna o esqueleto e D exibe o diagnóstico. |
+
+## Sequência da demonstração
+
+O MUAC inicia no modo livre, com repulsão e captura disponíveis. A confirmação do indicador reúne a nuvem em HEART. A transformação exibe uma linha entre os pontos de pinça, com escala e ângulo. [GIF de referência](https://github.com/HaiDuong1810/Gesture-Controlled-Particle-System/blob/main/assets/demo/demo_small.gif)
 
 ## Medição local
 
@@ -27,9 +31,11 @@ O diagnóstico de orientação usa a geometria matemática e testa a reentrânci
 
 ## Validação com Iriun
 
+No aplicativo, clique em **CAMERA** ou pressione **C** para selecionar o índice da Iriun. A seleção vale até fechar a janela. Para usar a mesma câmera no preview independente, ajuste o índice em `config.py`.
+
 1. Na raiz do MUAC, execute `.\.venv\Scripts\python.exe tests/preview_hands.py`. Mova uma mão e depois duas. Confira espelhamento, 21 pontos por mão e continuidade do esqueleto.
 2. Execute `.\.venv\Scripts\python.exe main.py`. Pressione **D** para abrir o diagnóstico e **M** duas vezes para testar o esqueleto. Confira FPS e 2.000 partículas.
-3. Pressione **H** para ocultar o coração. Mostre apenas o indicador por cerca de 0,7 s. Confira `RAW: INDEX_RAISED`, `CONFIRMED: INDEX_RAISED` e `ACTION: SELECT_HEART`. Retire a mão e confirme que o coração permanece com a ponta para baixo.
+3. Com as partículas em modo livre, mostre apenas o indicador por cerca de 0,7 s. Confira `RAW: INDEX_RAISED`, `CONFIRMED: INDEX_RAISED` e `ACTION: SELECT_HEART`. Retire a mão e confirme que o coração permanece com a ponta para baixo.
 4. Abra os cinco dedos junto a uma borda do coração. Mova a palma e veja se só a região próxima reage. Retire a mão e verifique o reagrupamento.
 5. Feche o punho e confira que não há ação. Faça uma pinça com polegar e indicador junto ao coração. Arraste a nuvem e solte. Confira `GRAB`, o deslocamento e o retorno das partículas.
 6. Encoste o polegar no dedo médio e solte rapidamente. Confira um BREAK e a reconstrução. Repita dentro de 0,8 s e depois fora desse intervalo. Compare com uma soltura lenta.

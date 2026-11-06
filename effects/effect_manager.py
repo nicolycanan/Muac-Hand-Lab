@@ -38,11 +38,11 @@ class TransformReference:
 
 
 class EffectManager:
-    def __init__(self):
+    def __init__(self, start_with_heart: bool = START_WITH_HEART):
         self.heart = ParticleHeartEffect(PARTICLE_COUNT)
-        self.heart_enabled = START_WITH_HEART
-        self.active_effect = "PARTICLE_HEART" if self.heart_enabled else "IDLE"
-        self.interaction_mode = InteractionMode.SHAPE if self.heart_enabled else InteractionMode.IDLE
+        self.heart_enabled = start_with_heart
+        self.active_effect = "PARTICLE_HEART" if self.heart_enabled else "FREE"
+        self.interaction_mode = InteractionMode.SHAPE if self.heart_enabled else InteractionMode.FREE
         self.transform_center = np.array([CAMERA_WIDTH / 2, CAMERA_HEIGHT / 2], dtype=np.float32)
         self.transform_scale = 0.82
         self.transform_rotation = 0.0
@@ -51,7 +51,11 @@ class EffectManager:
         self.transform_active = False
         self.heart.set_transform(tuple(self.transform_center), self.transform_scale, 0.0)
         system = self.heart.system
-        system.positions[:] = system.targets + np.random.default_rng(0).normal(0, 8, size=system.targets.shape)
+        rng = np.random.default_rng()
+        if self.heart_enabled:
+            system.positions[:] = system.targets + rng.normal(0, 8, size=system.targets.shape)
+        else:
+            system.positions[:] = rng.uniform((0, 0), (CAMERA_WIDTH, CAMERA_HEIGHT), size=system.positions.shape)
 
     @property
     def current_shape(self) -> str | None:
@@ -59,7 +63,7 @@ class EffectManager:
 
     def toggle_heart(self) -> None:
         self.heart_enabled = not self.heart_enabled
-        self.active_effect = "PARTICLE_HEART" if self.heart_enabled else "IDLE"
+        self.active_effect = "PARTICLE_HEART" if self.heart_enabled else "FREE"
 
     def set_transform(self, center: tuple[float, float], scale: float, rotation: float) -> None:
         self.transform_center = np.asarray(center, dtype=np.float32)
@@ -104,7 +108,7 @@ class EffectManager:
         system = self.heart.system
         mode = controller.mode
         controls = [controller.hands[key] for key in controller.confirmation.hands]
-        grab_hand = controller.confirmation.hands[0] if mode == InteractionMode.GRAB and self.heart_enabled else None
+        grab_hand = controller.confirmation.hands[0] if mode == InteractionMode.GRAB else None
         if grab_hand != self._grab_hand:
             system.end_grab()
         self._grab_hand = grab_hand
@@ -115,15 +119,12 @@ class EffectManager:
         self.transform_active = self.heart_enabled and mode == InteractionMode.TRANSFORM
         if not self.transform_active:
             self.transform_reference = None
-        if not self.heart_enabled:
-            self.interaction_mode = InteractionMode.IDLE
-            self.active_effect = "IDLE"
-            return self.active_effect
-
-        self.interaction_mode = InteractionMode.SHAPE if mode == InteractionMode.IDLE else mode
-        self.active_effect = "PARTICLE_HEART"
+        base_mode = InteractionMode.SHAPE if self.heart_enabled else InteractionMode.FREE
+        self.interaction_mode = mode if mode in (InteractionMode.REPEL, InteractionMode.GRAB) else base_mode
+        self.active_effect = "PARTICLE_HEART" if self.heart_enabled else "FREE"
         if self.transform_active:
             self.active_effect = "TRANSFORM"
+            self.interaction_mode = InteractionMode.TRANSFORM
             self._update_transform(*(hand.pinch_point for hand in controls))
         elif controller.event == GestureEvent.BREAK:
             system.break_apart(controller.event_point)
@@ -133,10 +134,13 @@ class EffectManager:
         elif mode == InteractionMode.GRAB:
             system.begin_or_update_grab(controls[0].pinch_point)
 
-        self.heart.update(dt)
-        self.heart.draw(frame)
+        if self.heart_enabled:
+            self.heart.update(dt)
+        else:
+            height, width = frame.shape[:2]
+            system.update(dt, force=0.0, damping=0.97, bounds=(width, height))
+        self.draw(frame)
         return self.active_effect
 
     def draw(self, frame) -> None:
-        if self.heart_enabled:
-            self.heart.draw(frame)
+        self.heart.draw(frame)

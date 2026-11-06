@@ -20,24 +20,24 @@ from config import (
     PARTICLE_COUNT,
     PINCH_THRESHOLD,
     SHOW_LANDMARKS,
-    START_WITH_HEART,
-    WINDOW_RESIZABLE,
 )
 from core.app_state import AppState
 from core.camera import CameraController
 from core.gesture_controller import GestureController
 from core.hand_tracker import HandTracker
 from effects.effect_manager import EffectManager
-from rendering.hud import draw_hud
+from rendering.camera_picker import CameraPicker
+from rendering.hud import draw_hand_controls, draw_hud
+
+
+WINDOW_TITLE = "MUAC / MAGIC HAND LAB"
 
 
 class MagicHandApp:
     def __init__(self):
         self.state = AppState()
         self.state.particle_count = PARTICLE_COUNT
-        self.state.heart_enabled = START_WITH_HEART
         self.state.show_landmarks = SHOW_LANDMARKS
-        self.state.active_effect = "PARTICLE_HEART" if START_WITH_HEART else "IDLE"
         self.state.display_resolution = f"{DISPLAY_WIDTH}x{DISPLAY_HEIGHT}"
         self.state.camera_resolution = f"{CAMERA_WIDTH}x{CAMERA_HEIGHT}"
         self.display_width = DISPLAY_WIDTH
@@ -45,20 +45,50 @@ class MagicHandApp:
         self._last_status_log = 0.0
         self._startup_logged = False
 
-        self.camera = CameraController(
-            camera_index=CAMERA_INDEX,
-            width=CAMERA_WIDTH,
-            height=CAMERA_HEIGHT,
-            fps=CAMERA_FPS,
-            backend_name=CAMERA_BACKEND,
-        )
+        self.camera: CameraController | None = None
+        self.camera_index: int | None = None
+        self.camera_status = ""
+        self._camera_read_failed = False
+        self._camera_frame: np.ndarray | None = None
+        self._empty_frame = np.zeros((CAMERA_HEIGHT, CAMERA_WIDTH, 3), dtype=np.uint8)
+        self.camera_picker = CameraPicker(self.display_height)
         self.tracker = HandTracker(max_hands=2, confidence=0.5)
         self.gesture_controller = GestureController(hold_time=GESTURE_HOLD_TIME, pinch_threshold=PINCH_THRESHOLD)
         self.effect_manager = EffectManager()
-        self.effect_manager.heart_enabled = START_WITH_HEART
-        self.effect_manager.active_effect = "PARTICLE_HEART" if START_WITH_HEART else "IDLE"
         self.running = True
         self.previous_time = time.perf_counter()
+
+    def _select_camera(self, index: int) -> None:
+        if self.camera is not None and index == self.camera_index:
+            if not self._camera_read_failed:
+                self.camera_status = ""
+                return
+            self.camera.close()
+            self.camera = None
+            self.camera_index = None
+
+        candidate = CameraController(
+            camera_index=index, width=CAMERA_WIDTH, height=CAMERA_HEIGHT,
+            fps=CAMERA_FPS, backend_name=CAMERA_BACKEND,
+        )
+        try:
+            ok, frame = candidate.read() if candidate.open() else (False, None)
+        except cv2.error:
+            ok, frame = False, None
+        if not ok or frame is None or not frame.size:
+            candidate.close()
+            self.camera_status = f"Camera {index} indisponivel. Escolha outro indice."
+            return
+
+        if self.camera is not None:
+            self.camera.close()
+        self.camera = candidate
+        self.camera_index = index
+        self.camera_status = ""
+        self._camera_read_failed = False
+        self._camera_frame = frame
+        self.gesture_controller = GestureController(hold_time=GESTURE_HOLD_TIME, pinch_threshold=PINCH_THRESHOLD)
+        self._emit_runtime_log(f"Camera pronta: {candidate.info}")
 
     def _letterbox(self, frame: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
         h, w = frame.shape[:2]
@@ -84,6 +114,8 @@ class MagicHandApp:
     def _handle_keys(self, key: int) -> None:
         if key == ord('q') or key == 27:
             self.running = False
+        elif key in (ord('c'), ord('C')):
+            self.camera_picker.expanded = not self.camera_picker.expanded
         elif key in (ord('h'), ord('H')):
             self.effect_manager.toggle_heart()
             self.state.heart_enabled = self.effect_manager.heart_enabled
@@ -99,32 +131,57 @@ class MagicHandApp:
         elif key in (ord('m'), ord('M')):
             self.state.show_landmarks = not self.state.show_landmarks
 
-    def run(self):
-        if not self.camera.open():
-            print(f"Unable to open camera {self.camera.info}; please check CAMERA_INDEX and backend settings.")
-            return
-
-        self._emit_runtime_log(f"Camera ready: {self.camera.info}")
-        cv2.namedWindow("MUAC / MAGIC HAND LAB", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("MUAC / MAGIC HAND LAB", self.display_width, self.display_height)
-
-        while self.running:
+    def _read_camera_frame(self) -> np.ndarray | None:
+        if self._camera_frame is not None:
+            frame, self._camera_frame = self._camera_frame, None
+            return frame
+        if self.camera is None:
+            return None
+        try:
             ok, frame = self.camera.read()
-            if not ok or frame is None:
-                print("Camera read failed; stopping application.")
-                break
+        except cv2.error:
+            ok, frame = False, None
+        if ok and frame is not None and frame.size:
+            if self._camera_read_failed:
+                self.camera_status = ""
+                self._camera_read_failed = False
+            return frame
+        self._camera_read_failed = True
+        self.camera_status = f"Sem video na camera {self.camera_index}. Use o seletor."
+        return None
 
-            camera_frame = cv2.flip(frame, 1)
-            hands = self.tracker.detect(camera_frame)
+    def run(self):
+        cv2.namedWindow(WINDOW_TITLE, cv2.WINDOW_NORMAL)
+        try:
+            cv2.resizeWindow(WINDOW_TITLE, self.display_width, self.display_height)
+            cv2.setMouseCallback(WINDOW_TITLE, self.camera_picker.on_mouse)
+            self._select_camera(CAMERA_INDEX)
+            self.previous_time = time.perf_counter()
+            self._run_loop()
+        finally:
+            self.close()
 
-            render_frame = camera_frame.copy()
-            if CAMERA_DARKNESS:
-                render_frame = cv2.convertScaleAbs(
-                    render_frame, alpha=1.0 - CAMERA_DARKNESS, beta=0
-                )
-            self.state.camera_resolution = f"{camera_frame.shape[1]}x{camera_frame.shape[0]}"
-            self.state.display_resolution = f"{self.display_width}x{self.display_height}"
-            self.state.tracker_active = self.tracker.is_active
+    def _run_loop(self):
+        while self.running:
+            index = self.camera_picker.take_selection()
+            if index is not None:
+                self._select_camera(index)
+                self.previous_time = time.perf_counter()
+            frame = self._read_camera_frame()
+            hands = []
+            if frame is None:
+                render_frame = self._empty_frame.copy()
+                self.state.camera_resolution = "--"
+            else:
+                height, width = frame.shape[:2]
+                self.state.camera_resolution = f"{width}x{height}"
+                camera_frame = cv2.flip(frame, 1)
+                if (width, height) != (CAMERA_WIDTH, CAMERA_HEIGHT):
+                    camera_frame = self._letterbox(camera_frame, CAMERA_WIDTH, CAMERA_HEIGHT)
+                hands = self.tracker.detect(camera_frame)
+                render_frame = cv2.convertScaleAbs(camera_frame, alpha=1.0 - CAMERA_DARKNESS)
+
+            self.state.tracker_active = frame is not None and self.tracker.is_active
 
             current_time = time.perf_counter()
             dt = current_time - self.previous_time
@@ -144,9 +201,10 @@ class MagicHandApp:
             self.state.confirmed_gesture = gesture if gesture != "IDLE" else "IDLE"
 
             self.state.active_effect = self.effect_manager.update(render_frame, self.gesture_controller, dt)
-            if self.state.show_landmarks:
+            if self.state.show_landmarks and hands:
                 self.tracker.draw_landmarks(render_frame, hands)
 
+            draw_hand_controls(render_frame, self.gesture_controller, self.effect_manager)
             self.state.heart_enabled = self.effect_manager.heart_enabled
             self.state.transform_active = self.effect_manager.transform_active
             if dt > 0.0:
@@ -158,14 +216,19 @@ class MagicHandApp:
                 self.effect_manager.interaction_mode, self.effect_manager.current_shape,
             )
 
-            cv2.imshow("MUAC / MAGIC HAND LAB", display_frame)
-            key = cv2.waitKey(1) & 0xFF
+            self.camera_picker.draw(display_frame, self.camera_index, self.camera_status)
+            cv2.imshow(WINDOW_TITLE, display_frame)
+            key = cv2.waitKey(16 if frame is None else 1) & 0xFF
             self._handle_keys(key)
-
-        self.close()
+            if self.running:
+                try:
+                    self.running = cv2.getWindowProperty(WINDOW_TITLE, cv2.WND_PROP_VISIBLE) >= 1
+                except cv2.error:
+                    self.running = False
 
     def close(self):
-        self.camera.close()
+        if self.camera is not None:
+            self.camera.close()
         self.tracker.close()
         cv2.destroyAllWindows()
 

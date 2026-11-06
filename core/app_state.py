@@ -2,16 +2,16 @@
 
 from dataclasses import dataclass, field
 
-from config import PARTICLE_COUNT
+from config import PARTICLE_COUNT, START_WITH_HEART
 
 
 @dataclass
 class AppState:
-    active_effect: str = "PARTICLE_HEART"
+    active_effect: str = "PARTICLE_HEART" if START_WITH_HEART else "FREE"
     gesture: str = "IDLE"
     confirmed_gesture: str = "IDLE"
     hands_detected: int = 0
-    heart_enabled: bool = True
+    heart_enabled: bool = START_WITH_HEART
     gesture_enabled: bool = True
     show_landmarks: bool = False
     show_debug: bool = False

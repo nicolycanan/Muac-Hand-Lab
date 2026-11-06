@@ -22,9 +22,7 @@ def main() -> None:
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
 
-    manager = EffectManager()
-    manager.heart_enabled = True
-    manager.active_effect = "PARTICLE_HEART"
+    manager = EffectManager(start_with_heart=True)
     previous = cv2.getTickCount()
 
     while True:

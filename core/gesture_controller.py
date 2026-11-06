@@ -46,6 +46,7 @@ class ConfirmedGesture:
 class InteractionMode(StrEnum):
     IDLE = "IDLE"
     SHAPE = "SHAPE"
+    FREE = "FREE"
     REPEL = "REPEL"
     GRAB = "GRAB"
     TRANSFORM = "TRANSFORM"

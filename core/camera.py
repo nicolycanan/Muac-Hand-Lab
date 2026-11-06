@@ -37,6 +37,7 @@ class CameraController:
     def open(self):
         capture = cv2.VideoCapture(self.camera_index, self.backend)
         if not capture.isOpened():
+            capture.release()
             self.capture = None
             return False
         capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)

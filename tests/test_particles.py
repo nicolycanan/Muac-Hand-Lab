@@ -29,7 +29,7 @@ def test_particle_system_update_approaches_target():
 
 
 def test_effect_manager_starts_with_heart_enabled():
-    manager = EffectManager()
+    manager = EffectManager(start_with_heart=True)
     assert manager.heart_enabled is True
     assert manager.heart.system.positions.shape == (PARTICLE_COUNT, 2)
 
@@ -43,7 +43,7 @@ def test_particle_system_draw_changes_frame():
 
 
 def test_set_targets_preserves_particle_state_and_read_only_base_geometry():
-    manager = EffectManager()
+    manager = EffectManager(start_with_heart=True)
     system = manager.heart.system
     base = system.base_targets.copy()
     old_targets = system.targets.copy()
@@ -79,3 +79,32 @@ def test_mixed_particle_effects_stay_finite_and_return_to_latest_targets():
     assert all(np.isfinite(a).all() for a in (system.positions, system.velocities, system.targets, system.colors))
     np.testing.assert_array_equal(system.targets, targets)
     assert np.linalg.norm(system.positions - targets, axis=1).mean() < 0.1
+
+
+def test_free_cloud_drifts_and_then_forms_heart():
+    from core.gesture_controller import GestureController
+    from test_gestures import _make_hand
+
+    manager = EffectManager()
+    controller = GestureController(hold_time=0)
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    system = manager.heart.system
+    positions = system.positions.copy()
+    targets = system.targets.copy()
+
+    manager.update(frame, controller, 1 / 30)
+    assert manager.current_shape is None
+    assert manager.interaction_mode == "FREE"
+    assert frame.any()
+    assert np.linalg.norm(system.positions - positions, axis=1).mean() > 0.1
+    assert ((system.positions >= 0) & (system.positions <= (639, 479))).all()
+
+    initial_distance = np.linalg.norm(system.positions - targets, axis=1).mean()
+    controller.update([_make_hand()], 1 / 30)
+    manager.update(frame, controller, 1 / 30)
+    controller.update([], 1 / 30)
+    for _ in range(100):
+        manager.update(frame, controller, 1 / 30)
+    assert manager.current_shape == "HEART"
+    assert np.linalg.norm(system.positions - targets, axis=1).mean() < initial_distance * 0.01
+    np.testing.assert_array_equal(system.targets, targets)

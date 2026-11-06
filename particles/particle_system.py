@@ -41,6 +41,8 @@ class ParticleSystem:
         self.colors = np.tile(np.array(PARTICLE_BASE_COLOR, dtype=np.uint8), (count, 1))
         self._acceleration = np.empty_like(self.positions)
         self._speed_scale = np.empty(count, dtype=np.float32)
+        angles = np.random.default_rng(0).uniform(0.0, 2 * np.pi, count)
+        self._drift = (0.35 * np.column_stack((np.cos(angles), np.sin(angles)))).astype(np.float32)
         self.max_speed = 8.0
         self._break_remaining = 0.0
         self.scatter_t = 0.0
@@ -75,7 +77,10 @@ class ParticleSystem:
     def set_targets(self, targets: np.ndarray) -> None:
         self.targets[:] = self._validated_targets(targets)
 
-    def update(self, dt: float, force: float = SHAPE_FORCE, damping: float = DAMPING) -> None:
+    def update(
+        self, dt: float, force: float = SHAPE_FORCE, damping: float = DAMPING,
+        bounds: tuple[int, int] | None = None,
+    ) -> None:
         if not np.isfinite(dt) or dt <= 0.0:
             return
 
@@ -97,6 +102,13 @@ class ParticleSystem:
 
                 np.einsum("ij,ij->i", self.velocities, self.velocities, out=self._speed_scale)
                 np.sqrt(self._speed_scale, out=self._speed_scale)
+                if bounds is not None:
+                    # Mantém um movimento lento quando a nuvem não está atraída pela forma.
+                    stationary = self._speed_scale < 1e-6
+                    self.velocities[stationary] = self._drift[stationary]
+                    self._speed_scale[stationary] = 0.35
+                    slow = self._speed_scale < 0.35
+                    self.velocities[slow] *= 0.35 / self._speed_scale[slow, None]
                 np.maximum(self._speed_scale, self.max_speed, out=self._speed_scale)
                 np.divide(self.max_speed, self._speed_scale, out=self._speed_scale)
                 self.velocities *= self._speed_scale[:, None]
@@ -105,6 +117,13 @@ class ParticleSystem:
                 self.velocities[self._grab.mask] = 0.0
             np.multiply(self.velocities, step, out=self._acceleration)
             self.positions += self._acceleration
+            if bounds is not None:
+                limit = np.asarray(bounds, dtype=np.float32) - 1
+                outward = ((self.positions < 0) & (self.velocities < 0)) | (
+                    (self.positions > limit) & (self.velocities > 0)
+                )
+                self.velocities[outward] *= -0.75
+                np.clip(self.positions, 0, limit, out=self.positions)
 
             self.scatter_t = max(0.0, self.scatter_t - elapsed)
             if self.scatter_t == 0.0:
