@@ -1,6 +1,6 @@
 import numpy as np
 
-from config import PARTICLE_COUNT
+from config import GRAB_RADIUS, PARTICLE_COUNT
 
 from effects.effect_manager import EffectManager
 from particles.particle_system import ParticleSystem
@@ -40,6 +40,16 @@ def test_particle_system_draw_changes_frame():
     system.positions = np.array([[50, 50], [80, 80], [110, 110], [140, 140], [170, 170], [200, 200], [230, 230], [260, 260]], dtype=np.float32)
     system.draw(frame)
     assert frame.any() > 0
+
+
+def test_grab_radius_is_150_and_controls_actual_particle_selection():
+    assert GRAB_RADIUS == 150.0
+    system = ParticleSystem(count=3)
+    system.positions[:] = ((150.0, 0.0), (150.01, 0.0), (149.0, 0.0))
+
+    system.begin_or_update_grab((0.0, 0.0))
+
+    np.testing.assert_array_equal(system._grab.mask, (True, False, True))
 
 
 def test_set_targets_preserves_particle_state_and_read_only_base_geometry():

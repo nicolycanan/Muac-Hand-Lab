@@ -3,6 +3,7 @@ import numpy as np
 from core.gesture_controller import HandGesture, RawGesture
 from effects.psychedelic_fill import PsychedelicFill
 from effects.rectangle_frame import RectangleFrame, RectangleState
+from effects.rectangle_style import RectangleFillStyle
 
 
 def _hand(point):
@@ -56,7 +57,7 @@ def test_fill_configuration_can_disable_texture(monkeypatch):
     rectangle.update(frame, _hands((10, 10), (50, 45)), 1 / 30)
 
     assert calls == []
-    assert np.any(frame != 0)
+    assert not np.any(frame)
 
 
 def test_fill_is_drawn_inside_the_rectangle_only():
@@ -106,11 +107,11 @@ def test_fill_tracks_smoothed_rectangle_resize():
     assert updated_width > initial_width
 
 
-def test_fade_applies_to_fill_and_outline_until_idle():
+def test_fade_applies_to_fill_until_idle():
     rectangle = _drawing_frame()
     rectangle.state = RectangleState.CLOSING
     alphas = []
-    rectangle.fill.render = lambda frame, first, second, dt, alpha: alphas.append(alpha)
+    rectangle.fill.render = lambda frame, first, second, dt, alpha, style, source_roi=None: alphas.append(alpha)
     frame = np.zeros((80, 100, 3), dtype=np.uint8)
 
     rectangle.update(frame, {}, 0.05)
@@ -126,18 +127,132 @@ def test_fade_applies_to_fill_and_outline_until_idle():
     assert len(alphas) == count
 
 
-def test_fading_outline_uses_the_same_alpha_as_the_fill(monkeypatch):
-    import effects.rectangle_frame as rectangle_module
-
-    monkeypatch.setattr(rectangle_module, "PSYCHEDELIC_FILL_ENABLED", False)
+def test_fade_passes_alpha_to_fill_without_drawing_an_outline():
     rectangle = _drawing_frame(((10, 10), (50, 45)))
     rectangle.state = RectangleState.CLOSING
+    alphas = []
+    rectangle.fill.render = lambda frame, first, second, dt, alpha, style, source_roi=None: alphas.append(alpha)
     frame = np.zeros((80, 100, 3), dtype=np.uint8)
 
     rectangle.update(frame, {}, 0.125)
 
     assert rectangle.alpha == 0.5
-    assert np.array_equal(frame[10, 30], (128, 128, 0))
+    assert alphas == [0.5]
+    assert not np.any(frame)
+
+
+def test_monochrome_style_is_animated_and_changes_only_rectangle_roi():
+    fill = PsychedelicFill()
+    source = np.full((100, 120, 3), (30, 80, 140), dtype=np.uint8)
+    first = source.copy()
+    second = source.copy()
+
+    fill.render(first, (10, 10), (110, 90), 0.0, style=RectangleFillStyle.MONOCHROME)
+    fill.render(second, (10, 10), (110, 90), 0.4, style=RectangleFillStyle.MONOCHROME)
+
+    assert not np.array_equal(first[20:80, 20:100], second[20:80, 20:100])
+    assert np.array_equal(first[0:10], source[0:10])
+    assert np.array_equal(first[:, 0:10], source[:, 0:10])
+    assert np.array_equal(first[:, 110:], source[:, 110:])
+    assert np.array_equal(first[90:], source[90:])
+
+
+def test_glitch_style_animates_inside_roi_without_changing_outside_pixels():
+    fill = PsychedelicFill()
+    y, x = np.indices((100, 120))
+    source = np.stack(
+        ((x * 2) % 256, (y * 3) % 256, (x + y) % 256),
+        axis=2,
+    ).astype(np.uint8)
+    first = source.copy()
+    second = source.copy()
+
+    fill.render(first, (10, 10), (110, 90), 0.0, style=RectangleFillStyle.GLITCH)
+    fill.render(second, (10, 10), (110, 90), 0.4, style=RectangleFillStyle.GLITCH)
+
+    assert not np.array_equal(first[20:80, 20:100], source[20:80, 20:100])
+    assert not np.array_equal(first[20:80, 20:100], second[20:80, 20:100])
+    assert np.array_equal(first[0:10], source[0:10])
+    assert np.array_equal(first[:, 0:10], source[:, 0:10])
+    assert np.array_equal(first[:, 110:], source[:, 110:])
+    assert np.array_equal(first[90:], source[90:])
+
+
+def test_glitch_uses_strongly_blended_camera_roi_as_its_base():
+    from config import GLITCH_OPACITY
+
+    y, x = np.indices((120, 160))
+    source = np.stack(
+        ((x * 3 + 20) % 256, (y * 2 + 50) % 256, (x + y * 2 + 90) % 256),
+        axis=2,
+    ).astype(np.uint8)
+    frame = source.copy()
+    fill = PsychedelicFill()
+    source_roi = source[11:110, 11:150].copy()
+
+    fill.render(
+        frame,
+        (10, 10),
+        (150, 110),
+        0.3,
+        style=RectangleFillStyle.GLITCH,
+        source_roi=source_roi,
+    )
+
+    roi = frame[11:110, 11:150]
+    original_roi = source[11:110, 11:150]
+    assert not np.array_equal(roi, original_roi)
+    assert np.mean(np.abs(roi.astype(np.int16) - original_roi.astype(np.int16))) > 3.0
+    assert np.mean(np.abs(roi.astype(np.int16) - original_roi.astype(np.int16))) < 70.0
+    assert GLITCH_OPACITY >= 0.8
+    assert np.array_equal(frame[:10], source[:10])
+    assert np.array_equal(frame[:, :10], source[:, :10])
+    assert np.array_equal(frame[:, 150:], source[:, 150:])
+    assert np.array_equal(frame[110:], source[110:])
+
+
+def test_glitch_output_depends_on_camera_source_not_synthetic_texture():
+    first_source = np.full((100, 120, 3), (20, 50, 90), dtype=np.uint8)
+    second_source = np.full((100, 120, 3), (180, 130, 70), dtype=np.uint8)
+    first = first_source.copy()
+    second = second_source.copy()
+    fill_a = PsychedelicFill()
+    fill_b = PsychedelicFill()
+
+    fill_a.render(first, (10, 10), (110, 90), 0.2, style=RectangleFillStyle.GLITCH)
+    fill_b.render(second, (10, 10), (110, 90), 0.2, style=RectangleFillStyle.GLITCH)
+
+    first_roi = first[11:90, 11:110]
+    second_roi = second[11:90, 11:110]
+    assert np.mean(first_roi[:, :, 0]) < np.mean(second_roi[:, :, 0])
+    assert np.mean(first_roi[:, :, 1]) < np.mean(second_roi[:, :, 1])
+    assert np.mean(first_roi[:, :, 2]) > np.mean(second_roi[:, :, 2])
+
+
+def test_glitch_remains_applied_after_rectangle_geometry_changes():
+    rectangle = _drawing_frame(((20, 20), (70, 60)))
+    rectangle.state = RectangleState.LOCKED
+    rectangle.fill_style = RectangleFillStyle.GLITCH
+    frame = np.full((100, 120, 3), (35, 95, 155), dtype=np.uint8)
+    first_bounds = tuple(point.copy() for point in rectangle.points)
+    first_source = rectangle.capture_source_roi(frame)
+
+    rectangle._draw(frame, 0.1, first_source)
+    for actual, expected in zip(rectangle.points, first_bounds):
+        np.testing.assert_array_equal(actual, expected)
+
+    rectangle.points = (
+        np.asarray((30, 25), dtype=np.float32),
+        np.asarray((100, 80), dtype=np.float32),
+    )
+    moved_bounds = tuple(point.copy() for point in rectangle.points)
+    moved_source = rectangle.capture_source_roi(frame)
+    rectangle._draw(frame, 0.1, moved_source)
+
+    assert moved_source is not None
+    assert moved_source.shape[:2] == (54, 69)
+    for actual, expected in zip(rectangle.points, moved_bounds):
+        np.testing.assert_array_equal(actual, expected)
 
 
 def test_inverted_clipped_and_degenerate_rectangles_are_safe():

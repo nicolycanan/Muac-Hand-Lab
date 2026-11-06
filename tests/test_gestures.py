@@ -1,7 +1,9 @@
 import numpy as np
+import pytest
 
+from config import HEART_OVERLOAD_HOLD_SECONDS, HEART_OVERLOAD_SCALE
 from core.gesture_controller import GestureController
-from effects.effect_manager import EffectManager
+from effects.effect_manager import EffectManager, TransformTarget, TransformTargetMode
 
 
 def _make_hand(
@@ -277,6 +279,211 @@ def test_transform_moves_scales_rotates_and_preserves_on_release():
     assert manager.transform_rotation == expected_rotation
 
 
+def _activate_heart_particle_transform(dt=1 / 60):
+    controller = GestureController(hold_time=0.0)
+    manager = EffectManager(start_with_heart=True)
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    hands = [
+        _make_hand(center=(440, 100), extended=(), pinch=True, label="LEFT"),
+        _make_hand(center=(560, 100), extended=(), pinch=True, label="RIGHT"),
+    ]
+    for _ in range(2):
+        controller.update(hands, dt)
+        manager.update(frame, controller, dt)
+    assert manager.transform_target == TransformTarget.PARTICLES
+    assert manager.transform_active
+    return controller, manager, frame, hands
+
+
+def _set_heart_transform_scale(manager, scale):
+    manager.set_transform(tuple(manager.transform_center), scale, manager.transform_rotation)
+    if manager.transform_reference is not None:
+        manager.transform_reference.shape_scale = manager.transform_scale
+
+
+@pytest.mark.parametrize("dt", [1 / 30, 1 / 60])
+def test_heart_overload_requires_threshold_for_configured_duration(dt, monkeypatch):
+    import effects.effect_manager as manager_module
+
+    monkeypatch.setattr(manager_module, "HEART_OVERLOAD_HOLD_SECONDS", 0.15)
+    controller, manager, frame, hands = _activate_heart_particle_transform(dt)
+    system = manager.heart.system
+    break_calls = []
+    original_break = system.break_apart
+
+    def record_break(point, strength=8.0):
+        break_calls.append((point.copy(), strength))
+        original_break(point, strength)
+
+    system.break_apart = record_break
+    _set_heart_transform_scale(manager, HEART_OVERLOAD_SCALE + 0.01)
+    elapsed = 0.0
+    while elapsed + 1e-9 < 0.15:
+        controller.update(hands, dt)
+        manager.update(frame, controller, dt)
+        elapsed += dt
+        if elapsed + 1e-9 < 0.15:
+            assert manager.current_shape == "HEART"
+            assert not break_calls
+
+    assert manager.current_shape is None
+    assert manager.active_effect == "FREE"
+    assert manager.transform_target == TransformTarget.NONE
+    assert manager._transform_release_required
+    assert system.exploding
+    assert len(break_calls) == 1
+    np.testing.assert_array_equal(break_calls[0][0], manager.transform_center)
+    assert break_calls[0][1] == manager_module.HEART_OVERLOAD_STRENGTH
+
+
+def test_heart_overload_does_not_trigger_below_scale_threshold():
+    controller, manager, frame, hands = _activate_heart_particle_transform()
+    _set_heart_transform_scale(manager, HEART_OVERLOAD_SCALE - 0.01)
+
+    for _ in range(20):
+        controller.update(hands, 1 / 60)
+        manager.update(frame, controller, 1 / 60)
+
+    assert manager.current_shape == "HEART"
+    assert not manager.heart.system.exploding
+    assert manager._heart_overload_elapsed == 0.0
+
+
+def test_heart_overload_does_not_trigger_at_scale_threshold():
+    controller, manager, frame, hands = _activate_heart_particle_transform()
+    _set_heart_transform_scale(manager, HEART_OVERLOAD_SCALE)
+
+    for _ in range(20):
+        controller.update(hands, 1 / 60)
+        manager.update(frame, controller, 1 / 60)
+
+    assert manager.current_shape == "HEART"
+    assert not manager.heart.system.exploding
+    assert manager._heart_overload_elapsed == 0.0
+
+
+def test_heart_overload_is_single_fire_and_waits_for_pinch_release():
+    controller, manager, frame, hands = _activate_heart_particle_transform()
+    system = manager.heart.system
+    calls = []
+    original_break = system.break_apart
+
+    def count_break(point, strength=8.0):
+        calls.append(point.copy())
+        original_break(point, strength)
+
+    system.break_apart = count_break
+    _set_heart_transform_scale(manager, HEART_OVERLOAD_SCALE + 0.01)
+    for _ in range(20):
+        controller.update(hands, 1 / 60)
+        manager.update(frame, controller, 1 / 60)
+
+    assert len(calls) == 1
+    assert manager.current_shape is None
+    positions_after_burst = system.positions.copy()
+    for _ in range(8):
+        controller.update(hands, 1 / 60)
+        manager.update(frame, controller, 1 / 60)
+    assert len(calls) == 1
+    assert manager.transform_target == TransformTarget.NONE
+    assert not manager.transform_active
+    assert not np.array_equal(system.positions, positions_after_burst)
+
+    controller.update([], 1 / 60)
+    manager.update(frame, controller, 1 / 60)
+    assert not manager._transform_release_required
+
+
+def test_heart_overload_can_be_rebuilt_after_explosion():
+    controller, manager, frame, hands = _activate_heart_particle_transform()
+    _set_heart_transform_scale(manager, HEART_OVERLOAD_SCALE + 0.01)
+    for _ in range(20):
+        controller.update(hands, 1 / 60)
+        manager.update(frame, controller, 1 / 60)
+        if manager.current_shape is None:
+            break
+    assert manager.current_shape is None
+
+    index = _make_hand(extended=("INDEX",))
+    for _ in range(3):
+        controller.update([index], 1 / 30)
+        manager.update(frame, controller, 1 / 30)
+
+    assert manager.current_shape == "HEART"
+
+
+def test_letter_transform_never_triggers_heart_overload():
+    controller = GestureController(hold_time=0.0)
+    manager = EffectManager(start_with_heart=True)
+    manager._select_shape("A")
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    hands = [
+        _make_hand(center=(440, 100), extended=(), pinch=True, label="LEFT"),
+        _make_hand(center=(560, 100), extended=(), pinch=True, label="RIGHT"),
+    ]
+    for _ in range(2):
+        controller.update(hands, 1 / 60)
+        manager.update(frame, controller, 1 / 60)
+    manager.transform_reference.shape_scale = HEART_OVERLOAD_SCALE + 0.2
+    _set_heart_transform_scale(manager, HEART_OVERLOAD_SCALE + 0.2)
+
+    for _ in range(20):
+        controller.update(hands, 1 / 60)
+        manager.update(frame, controller, 1 / 60)
+
+    assert manager.current_shape == "A"
+    assert not manager.heart.system.exploding
+
+
+def test_rectangle_target_does_not_trigger_heart_overload():
+    from effects.rectangle_frame import RectangleFrame, RectangleState
+
+    controller, manager, frame, _ = _activate_heart_particle_transform()
+    rectangle = RectangleFrame(instance_id=1)
+    rectangle.state = RectangleState.LOCKED
+    rectangle.points = (
+        np.asarray((200, 150), dtype=np.float32),
+        np.asarray((420, 350), dtype=np.float32),
+    )
+    manager.rectangle_manager.instances.append(rectangle)
+    hands = [
+        _make_hand(center=(250, 240), extended=(), pinch=True, label="LEFT"),
+        _make_hand(center=(350, 240), extended=(), pinch=True, label="RIGHT"),
+    ]
+    controller.update([], 1 / 60)
+    manager.update(frame, controller, 1 / 60)
+    controller.update(hands, 1 / 60)
+    manager.update(frame, controller, 1 / 60)
+    assert manager.transform_target == TransformTarget.RECTANGLE
+    manager.transform_scale = HEART_OVERLOAD_SCALE + 0.2
+
+    for _ in range(20):
+        controller.update(hands, 1 / 60)
+        manager.update(frame, controller, 1 / 60)
+
+    assert manager.current_shape == "HEART"
+    assert not manager.heart.system.exploding
+
+
+def test_wrong_manual_transform_target_prevents_heart_overload():
+    controller, manager, frame, hands = _activate_heart_particle_transform()
+    manager.transform_target_mode = TransformTargetMode.RECTANGLE
+    controller.update([], 1 / 60)
+    manager.update(frame, controller, 1 / 60)
+    for _ in range(2):
+        controller.update(hands, 1 / 60)
+        manager.update(frame, controller, 1 / 60)
+    assert manager.transform_target == TransformTarget.NONE
+    manager.transform_scale = HEART_OVERLOAD_SCALE + 0.2
+
+    for _ in range(20):
+        controller.update(hands, 1 / 60)
+        manager.update(frame, controller, 1 / 60)
+
+    assert manager.current_shape == "HEART"
+    assert not manager.heart.system.exploding
+
+
 def test_transform_angle_wrap_and_degenerate_baseline():
     manager = EffectManager(start_with_heart=True)
     origin = np.array((260, 180), dtype=np.float32)
@@ -405,6 +612,30 @@ def test_transform_overlay_connects_pinch_points():
     overlay.fill(0)
     draw_hand_controls(overlay, controller, manager)
     assert not overlay.any()
+
+
+def test_grab_overlay_uses_the_same_radius_as_particle_capture(monkeypatch):
+    import rendering.hud as hud
+    from config import GRAB_RADIUS
+
+    controller = GestureController(hold_time=0.0)
+    manager = EffectManager(start_with_heart=False)
+    hand = _make_hand(center=(220, 220), extended=(), pinch=True, label="LEFT")
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    controller.update([hand], 1 / 30)
+    manager.update(frame, controller, 1 / 30)
+    controller.update([hand], 1 / 30)
+    manager.update(frame, controller, 1 / 30)
+
+    drawn_radii = []
+    monkeypatch.setattr(
+        hud.cv2,
+        "circle",
+        lambda frame, center, radius, *args, **kwargs: drawn_radii.append(radius),
+    )
+    hud.draw_hand_controls(frame, controller, manager)
+
+    assert GRAB_RADIUS in drawn_radii
 
 
 def test_two_fingers_select_letter_and_three_held_change_once_per_pose(monkeypatch):

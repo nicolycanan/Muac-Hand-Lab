@@ -134,6 +134,8 @@ class MagicHandApp:
             self.state.show_debug = not self.state.show_debug
         elif key in (ord('m'), ord('M')):
             self.state.show_landmarks = not self.state.show_landmarks
+        elif key in (ord('t'), ord('T')):
+            self.effect_manager.cycle_transform_target_mode()
 
     def _read_camera_frame(self) -> np.ndarray | None:
         if self._camera_frame is not None:
@@ -240,6 +242,14 @@ class MagicHandApp:
             draw_hud(
                 display_frame, self.state, self.gesture_controller,
                 self.effect_manager.interaction_mode, self.effect_manager.current_shape,
+                self.effect_manager.transform_target_mode,
+                self.effect_manager.transform_target,
+                self.effect_manager.rectangle_delete_pending,
+                self.effect_manager.rectangle_manager.count,
+                self.effect_manager.rectangle_manager.max_instances,
+                self.effect_manager.selected_rectangle_id,
+                self.effect_manager.rectangle_manager.limit_reached,
+                self.effect_manager.rectangle_style_feedback,
             )
 
             self.camera_picker.draw(display_frame, self.camera_index, self.camera_status)

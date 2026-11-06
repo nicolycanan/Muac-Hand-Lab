@@ -32,6 +32,14 @@ def draw_hud(
     gestures: GestureController,
     mode: InteractionMode,
     shape: str | None,
+    transform_target_mode: str = "AUTO",
+    transform_target: str = "NONE",
+    rectangle_delete_pending: bool = False,
+    rectangle_count: int = 0,
+    rectangle_limit: int = 6,
+    selected_rectangle_id: int | None = None,
+    rectangle_limit_reached: bool = False,
+    rectangle_style_feedback: tuple[int, str, float] | None = None,
 ) -> None:
     height, width = frame.shape[:2]
     summary = [
@@ -41,7 +49,22 @@ def draw_hud(
         f"HANDS: {state.hands_detected} / 2",
         f"PARTICLES: {state.particle_count}",
         f"FPS: {state.fps:.1f}",
+        f"TARGET: {transform_target_mode}",
+        f"RECTANGLES: {rectangle_count}/{rectangle_limit}",
     ]
+    if selected_rectangle_id is not None:
+        summary.append(f"SELECTED: RECTANGLE {selected_rectangle_id:02d}")
+    if rectangle_style_feedback is not None:
+        rectangle_id, style, progress = rectangle_style_feedback
+        summary.append(f"RECTANGLE {rectangle_id:02d} / {style}")
+        if progress > 0.0:
+            summary.append(f"STYLE SWITCH: {int(progress * 100)}%")
+    if rectangle_limit_reached:
+        summary.append("RECTANGLE LIMIT REACHED")
+    if transform_target != "NONE":
+        summary.append(f"TRANSFORM / {transform_target}")
+    if rectangle_delete_pending:
+        summary.append("RECTANGLE / RELEASE TO CANCEL")
     if shape is None:
         summary.append("1 dedo: HEART   2 dedos: letra")
     labels = {
@@ -99,9 +122,23 @@ def draw_hand_controls(frame: np.ndarray, gestures: GestureController, effects: 
             cv2.circle(frame, point, 5, color, -1, cv2.LINE_AA)
         center = tuple((a + b) // 2 for a, b in zip(first, second))
         cv2.circle(frame, center, 4, color, -1, cv2.LINE_AA)
-        degrees = (np.rad2deg(effects.transform_rotation) + 180) % 360 - 180
-        label = f"MOVER / ESCALAR / GIRAR  {effects.transform_scale:.2f}x  {degrees:+.0f} graus"
-        x = min(max(center[0] + 9, 10), max(frame.shape[1] - 285, 10))
+        if effects.rectangle_transform_active:
+            rectangle = effects.selected_rectangle
+            if rectangle is None:
+                label = "TRANSFORM / RECTANGLE"
+            elif rectangle.delete_pending:
+                label = "RECTANGLE / RELEASE TO CANCEL"
+            else:
+                label = (
+                    f"TRANSFORM / RECTANGLE  MOVE + SCALE  "
+                    f"{rectangle.transform_scale:.2f}x"
+                )
+        elif effects.current_shape is None:
+            label = f"TRANSFORM / PARTICLES  MOVE + SCALE  {effects.free_particle_transform_scale:.2f}x"
+        else:
+            degrees = (np.rad2deg(effects.transform_rotation) + 180) % 360 - 180
+            label = f"TRANSFORM / PARTICLES  MOVE + SCALE + ROTATE  {effects.transform_scale:.2f}x  {degrees:+.0f}"
+        x = min(max(center[0] + 9, 10), max(frame.shape[1] - 360, 10))
         cv2.putText(frame, label, (x, max(center[1] - 10, 15)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.39, color, 1, cv2.LINE_AA)
     elif effects.interaction_mode in (InteractionMode.REPEL, InteractionMode.GRAB):
