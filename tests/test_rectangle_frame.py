@@ -97,7 +97,8 @@ def test_approaching_then_separating_draws_rectangle():
     outline = np.zeros_like(frame)
     manager.rectangle_frame.update(outline, controller.hands, 0.0)
     center = tuple(np.rint(np.mean(manager.rectangle_frame.points, axis=0)).astype(int))
-    assert np.array_equal(outline[center[1], center[0]], (0, 0, 0))
+    assert np.any(outline[center[1], center[0]] != 0)
+    assert not np.array_equal(outline[center[1], center[0]], (255, 255, 0))
 
 
 def test_hands_already_separated_do_not_arm():

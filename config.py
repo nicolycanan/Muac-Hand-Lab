@@ -69,6 +69,15 @@ RECTANGLE_THICKNESS = 2  # Espessura da borda OpenCV, em pixels.
 RECTANGLE_L_MIN_ANGLE = 35.0  # Ângulo mínimo entre os eixos do polegar e indicador.
 RECTANGLE_L_MAX_ANGLE = 145.0  # Ângulo máximo entre os eixos do polegar e indicador.
 
+# Preenchimento psicodélico. A textura processa somente o interior do retângulo.
+PSYCHEDELIC_FILL_ENABLED = True  # Desativa completamente o cálculo e o desenho da textura.
+PSYCHEDELIC_FILL_OPACITY = 0.60  # Mistura com a imagem da câmera; intervalo válido de 0 a 1.
+PSYCHEDELIC_FILL_SPEED = 1.0  # Multiplicador do tempo da animação.
+PSYCHEDELIC_FILL_SCALE = 1.0  # Multiplicador das frequências das ondas.
+PSYCHEDELIC_FILL_SATURATION = 1.0  # Saturação HSV; valores acima de 1 são limitados.
+PSYCHEDELIC_FILL_HUE_SHIFT = 0.0  # Deslocamento da paleta HSV, em graus (0 a 360).
+PSYCHEDELIC_FILL_MAX_DIMENSION = 320  # Maior dimensão do cálculo interno da textura, em pixels.
+
 SHOW_FPS = True
 
 TEST_MODE = False

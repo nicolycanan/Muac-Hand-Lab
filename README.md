@@ -19,9 +19,9 @@ Inicie o aplicativo com o comando abaixo.
 
 ## Configuração da câmera
 
-O MUAC abre a webcam padrão no índice 0 pelo DirectShow. Para trocar, clique em **CAMERA** no canto inferior esquerdo da janela ou pressione **C** para abrir o seletor. Clique no índice desejado. Se o dispositivo não entregar vídeo, o MUAC informa que a câmera está indisponível e mantém o vídeo da câmera ativa.
+O MUAC abre a webcam padrão no índice 0 pelo backend configurado em `CAMERA_BACKEND` (`DSHOW`, `MF` ou `AUTO`). A descoberta inicial e a ação **RESCAN** verificam os índices configurados em `CAMERA_PROBE_START` e `CAMERA_PROBE_END`. Um dispositivo só aparece se abrir e entregar um frame válido; a câmera ativa não é aberta novamente durante a sondagem. Como o OpenCV usado pelo projeto não enumera nomes confiáveis de dispositivos, a lista mostra `Camera N` com seu índice. Se um driver não aparecer com DirectShow, experimente `MF` (Media Foundation) em `config.py` e reinicie o aplicativo.
 
-Se usar a Iriun Webcam, abra o aplicativo no celular e o cliente no computador antes de escolher o índice. A ordem dos índices é definida pelo Windows. O seletor exibe índices, e o seguinte comando ajuda a identificar quais entregam vídeo.
+Pressione **C** ou abra **MUAC / VIDEO SOURCES** no canto inferior esquerdo. O painel lista apenas fontes verificadas, destaca a ativa e permite atualizar a lista com **RESCAN**. A sondagem ocorre em segundo plano; a lista é atualizada no loop principal. Se uma câmera escolhida falhar ao entregar vídeo, a câmera ativa anterior é preservada. Se usar a Iriun Webcam, abra o aplicativo no celular e o cliente no computador antes de atualizar a lista.
 
 ```powershell
 .\.venv\Scripts\python.exe tests/probe_cameras.py
@@ -47,6 +47,10 @@ O MUAC inicia com partículas livres. Levante o indicador para formar o coraçã
 | Estalo com polegar e dedo médio | Dispersa as partículas uma vez e deixa a forma ativa se recompor. |
 | Duas pinças simultâneas | O ponto médio desloca a forma, a distância ajusta a escala e a inclinação gira a forma. Uma linha marca os pontos de pinça e exibe a escala e o ângulo. Soltar mantém a transformação aplicada. |
 | Polegar e indicador em L nas duas mãos | Aproxime as mãos para armar e depois afaste-as para desenhar um retângulo cyan de contorno. As mãos controlam cantos opostos; trocar o gesto fecha o retângulo gradualmente. |
+
+O retângulo combina o contorno cyan com um plasma procedural animado, recortado ao seu interior. A animação usa tempo decorrido, continua fluindo com as mãos paradas e acompanha o redimensionamento. Ao abandonar o gesto, preenchimento e contorno desaparecem juntos.
+
+Em `config.py`, `PSYCHEDELIC_FILL_ENABLED` liga/desliga o interior, `PSYCHEDELIC_FILL_OPACITY` controla a mistura com a webcam, `PSYCHEDELIC_FILL_SPEED` ajusta a velocidade, `PSYCHEDELIC_FILL_SCALE` altera a frequência das ondas, `PSYCHEDELIC_FILL_SATURATION` ajusta a intensidade da paleta neon e `PSYCHEDELIC_FILL_HUE_SHIFT` gira suas cores em graus (0–360). `PSYCHEDELIC_FILL_MAX_DIMENSION` limita a resolução interna para preservar o desempenho.
 
 ## Teclado
 

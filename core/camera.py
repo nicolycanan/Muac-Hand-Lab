@@ -2,25 +2,63 @@
 
 from __future__ import annotations
 
+from threading import Event
+
 import cv2
+import numpy as np
 
-from config import CAMERA_BACKEND_MAP, CAMERA_FPS, CAMERA_HEIGHT, CAMERA_INDEX, CAMERA_WIDTH
+from config import (
+    CAMERA_BACKEND_MAP,
+    CAMERA_FPS,
+    CAMERA_HEIGHT,
+    CAMERA_INDEX,
+    CAMERA_PROBE_END,
+    CAMERA_PROBE_START,
+    CAMERA_WIDTH,
+)
 
 
-def list_camera_indices(start: int = 0, stop: int = 10, backend_name: str = "AUTO") -> list[tuple[int, bool, tuple[int, int] | None]]:
-    """Testa um intervalo de índices e informa quais câmeras abrem e entregam quadros."""
+def list_camera_indices(
+    start: int = CAMERA_PROBE_START,
+    stop: int = CAMERA_PROBE_END,
+    backend_name: str = "AUTO",
+    active_index: int | None = None,
+    active_available: bool = False,
+    cancel_event: Event | None = None,
+) -> list[tuple[int, bool, tuple[int, int] | None]]:
+    """Test indexes and report availability only after a valid BGR frame is received."""
     backend = CAMERA_BACKEND_MAP.get(backend_name.upper(), cv2.CAP_ANY)
     results: list[tuple[int, bool, tuple[int, int] | None]] = []
     for idx in range(start, stop + 1):
-        cap = cv2.VideoCapture(idx, backend)
-        opened = bool(cap.isOpened())
+        if cancel_event is not None and cancel_event.is_set():
+            break
+        if idx == active_index:
+            results.append((idx, active_available, None))
+            continue
+
         shape = None
-        if opened:
-            ok, frame = cap.read()
-            if ok and frame is not None:
-                shape = (int(frame.shape[1]), int(frame.shape[0]))
-            cap.release()
-        results.append((idx, opened, shape))
+        cap = None
+        try:
+            cap = cv2.VideoCapture(idx, backend)
+            if cap.isOpened():
+                ok, frame = cap.read()
+                if (
+                    ok
+                    and isinstance(frame, np.ndarray)
+                    and frame.size > 0
+                    and frame.ndim == 3
+                    and frame.shape[0] > 0
+                    and frame.shape[1] > 0
+                    and frame.shape[2] == 3
+                ):
+                    shape = (int(frame.shape[1]), int(frame.shape[0]))
+        except cv2.error:
+            shape = None
+        finally:
+            if cap is not None:
+                cap.release()
+
+        results.append((idx, shape is not None, shape))
     return results
 
 

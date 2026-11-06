@@ -7,6 +7,7 @@ import numpy as np
 import Magic_hand
 from core import camera, hand_tracker
 from core.hand_tracker import HandTracker
+from rendering.camera_picker import CameraDevice, CameraPicker
 from test_gestures import _make_hand
 
 
@@ -134,8 +135,12 @@ def test_camera_button_switches_after_failed_default_and_preserves_active_feed(m
     monkeypatch.setattr(cv2, "resizeWindow", lambda *args: None)
     monkeypatch.setattr(cv2, "destroyAllWindows", lambda: None)
     monkeypatch.setattr(cv2, "getWindowProperty", lambda *args: 1.0)
+    monkeypatch.setattr(CameraPicker, "rescan", lambda *args, **kwargs: False)
 
     app = Magic_hand.MagicHandApp()
+    app.camera_picker.available_devices = [
+        CameraDevice(index) for index in (1, 2, 3)
+    ]
     callback = None
 
     def register(window, handler):

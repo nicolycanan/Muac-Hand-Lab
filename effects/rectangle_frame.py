@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from config import (
+    PSYCHEDELIC_FILL_ENABLED,
     RECTANGLE_ARM_DISTANCE_PALMS,
     RECTANGLE_COLOR,
     RECTANGLE_FADE_SECONDS,
@@ -17,6 +18,7 @@ from config import (
     RECTANGLE_TRACKING_GRACE_FRAMES,
 )
 from core.gesture_controller import HandGesture
+from effects.psychedelic_fill import PsychedelicFill
 
 
 class RectangleState(StrEnum):
@@ -28,6 +30,7 @@ class RectangleState(StrEnum):
 
 class RectangleFrame:
     def __init__(self) -> None:
+        self.fill = PsychedelicFill()
         self.reset()
 
     def reset(self) -> None:
@@ -87,16 +90,67 @@ class RectangleFrame:
             return
 
         height, width = frame.shape[:2]
-        corners = [
-            (
-                int(np.clip(np.rint(point[0]), 0, width - 1)),
-                int(np.clip(np.rint(point[1]), 0, height - 1)),
-            )
+        raw_corners = [
+            tuple(np.rint(point).astype(int))
             for point in self.points
         ]
-        overlay = frame.copy()
-        cv2.rectangle(overlay, corners[0], corners[1], RECTANGLE_COLOR, RECTANGLE_THICKNESS)
-        cv2.addWeighted(overlay, self.alpha, frame, 1.0 - self.alpha, 0, dst=frame)
+        x_min = min(point[0] for point in raw_corners)
+        x_max = max(point[0] for point in raw_corners)
+        y_min = min(point[1] for point in raw_corners)
+        y_max = max(point[1] for point in raw_corners)
+        if x_max < 0 or y_max < 0 or x_min >= width or y_min >= height:
+            return
+        first = (
+            int(np.clip(x_min, 0, width - 1)),
+            int(np.clip(y_min, 0, height - 1)),
+        )
+        second = (
+            int(np.clip(x_max, 0, width - 1)),
+            int(np.clip(y_max, 0, height - 1)),
+        )
+        if PSYCHEDELIC_FILL_ENABLED:
+            self.fill.render(frame, first, second, dt, self.alpha)
+
+        left, top = first
+        right, bottom = second
+        if self.alpha >= 1.0:
+            cv2.rectangle(frame, first, second, RECTANGLE_COLOR, RECTANGLE_THICKNESS)
+            return
+
+        border_width = min(RECTANGLE_THICKNESS, right - left + 1, bottom - top + 1)
+        if right - left + 1 <= 2 * border_width or bottom - top + 1 <= 2 * border_width:
+            border_roi = frame[top:bottom + 1, left:right + 1]
+            overlay = border_roi.copy()
+            cv2.rectangle(
+                overlay,
+                (0, 0),
+                (right - left, bottom - top),
+                RECTANGLE_COLOR,
+                RECTANGLE_THICKNESS,
+            )
+            cv2.addWeighted(
+                overlay,
+                self.alpha,
+                border_roi,
+                1.0 - self.alpha,
+                0,
+                dst=border_roi,
+            )
+            return
+
+        thickness = border_width
+        edge_regions = (
+            frame[top:top + thickness, left:right + 1],
+            frame[bottom - thickness + 1:bottom + 1, left:right + 1],
+            frame[top + thickness:bottom - thickness + 1, left:left + thickness],
+            frame[top + thickness:bottom - thickness + 1, right - thickness + 1:right + 1],
+        )
+        color = np.asarray(RECTANGLE_COLOR, dtype=np.float32)
+        for region in edge_regions:
+            region[:] = np.rint(
+                region.astype(np.float32) * (1.0 - self.alpha)
+                + color * self.alpha
+            ).astype(np.uint8)
 
     def update(self, frame: np.ndarray, hands: dict[str, HandGesture], dt: float) -> None:
         dt = max(float(dt), 0.0)

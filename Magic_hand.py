@@ -60,8 +60,11 @@ class MagicHandApp:
 
     def _select_camera(self, index: int) -> None:
         if self.camera is not None and index == self.camera_index:
-            if not self._camera_read_failed:
+            if not self._camera_read_failed and getattr(self.camera, "capture", True) is not None:
                 self.camera_status = ""
+                return
+            if getattr(self.camera, "capture", True) is not None:
+                self.camera_status = f"Camera {index} sem vídeo. Escolha outra fonte ou use RESCAN."
                 return
             self.camera.close()
             self.camera = None
@@ -77,7 +80,8 @@ class MagicHandApp:
             ok, frame = False, None
         if not ok or frame is None or not frame.size:
             candidate.close()
-            self.camera_status = f"Camera {index} indisponivel. Escolha outro indice."
+            self.camera_picker.mark_unavailable(index)
+            self.camera_status = f"Camera {index} indisponivel; a câmera ativa foi preservada."
             return
 
         if self.camera is not None:
@@ -156,13 +160,35 @@ class MagicHandApp:
             cv2.resizeWindow(WINDOW_TITLE, self.display_width, self.display_height)
             cv2.setMouseCallback(WINDOW_TITLE, self.camera_picker.on_mouse)
             self._select_camera(CAMERA_INDEX)
+            self.camera_picker.rescan(
+                self._open_camera_index(),
+                active_available=self._camera_is_delivering(),
+            )
             self.previous_time = time.perf_counter()
             self._run_loop()
         finally:
             self.close()
 
+    def _camera_is_delivering(self) -> bool:
+        return (
+            self.camera is not None
+            and not self._camera_read_failed
+            and getattr(self.camera, "capture", True) is not None
+        )
+
+    def _open_camera_index(self) -> int | None:
+        if self.camera is None or getattr(self.camera, "capture", True) is None:
+            return None
+        return self.camera_index
+
     def _run_loop(self):
         while self.running:
+            self.camera_picker.poll_scan_results()
+            if self.camera_picker.take_rescan_request():
+                self.camera_picker.rescan(
+                    self._open_camera_index(),
+                    active_available=self._camera_is_delivering(),
+                )
             index = self.camera_picker.take_selection()
             if index is not None:
                 self._select_camera(index)
@@ -227,6 +253,7 @@ class MagicHandApp:
                     self.running = False
 
     def close(self):
+        self.camera_picker.close()
         if self.camera is not None:
             self.camera.close()
         self.tracker.close()
